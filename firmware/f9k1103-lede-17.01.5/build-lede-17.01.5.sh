@@ -152,6 +152,9 @@ replace_once(
 
 PY
 
+echo "=== LEDE 17.01.5 lzma-loader sanity ==="
+grep -nE '^(PLATFORM|loader-compile:)|PLATFORM=' target/linux/ramips/image/lzma-loader/Makefile || true
+
 git diff --   target/linux/ramips/dts/F9K1103.dts   target/linux/ramips/image/Makefile   target/linux/ramips/image/rt3883.mk   target/linux/ramips/base-files/lib/ramips.sh   target/linux/ramips/base-files/etc/board.d/01_leds   target/linux/ramips/base-files/etc/board.d/02_network   target/linux/ramips/base-files/lib/upgrade/platform.sh   > "$GITHUB_WORKSPACE/F9K1103-LEDE-17.01.5.patch"
 
 ./scripts/feeds update -a
