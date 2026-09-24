@@ -1,0 +1,167 @@
+/dts-v1/;
+
+#include "rt3883.dtsi"
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+
+/ {
+	compatible = "F9K1103", "ralink,rt3883-soc";
+	model = "Belkin F9K1103 Version 1.0";
+
+	rtl8367 {
+		compatible = "realtek,rtl8367b";
+		gpio-sda = <&gpio0 1 GPIO_ACTIVE_HIGH>;
+		gpio-sck = <&gpio0 2 GPIO_ACTIVE_HIGH>;
+		realtek,extif1 = <1 0 1 1 1 1 1 1 2>;
+	};
+
+	gpio-keys-polled {
+		compatible = "gpio-keys-polled";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		poll-interval = <100>;
+
+		/* Padavan BN750DB/F9K1103: absolute GPIO 25/26.
+		 * rt3883.dtsi splits GPIO0=0..23 and GPIO1=24..39.
+		 */
+		reset {
+			label = "reset";
+			gpios = <&gpio1 1 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_RESTART>;
+		};
+
+		wps {
+			label = "wps";
+			gpios = <&gpio1 2 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_WPS_BUTTON>;
+		};
+	};
+
+	gpio-leds {
+		compatible = "gpio-leds";
+
+		power {
+			label = "f9k1103:power";
+			gpios = <&gpio0 0 GPIO_ACTIVE_LOW>;
+		};
+
+		lan {
+			label = "f9k1103:lan";
+			gpios = <&gpio0 13 GPIO_ACTIVE_LOW>;
+		};
+
+		wan {
+			label = "f9k1103:wan";
+			gpios = <&gpio0 12 GPIO_ACTIVE_LOW>;
+		};
+
+		usb {
+			label = "f9k1103:usb";
+			gpios = <&gpio0 9 GPIO_ACTIVE_LOW>;
+		};
+	};
+};
+
+&gpio1 {
+	status = "okay";
+};
+
+&pinctrl {
+	state_default: pinctrl0 {
+		gpio {
+			ralink,group = "i2c", "jtag", "uartf";
+			ralink,function = "gpio";
+		};
+	};
+};
+
+&spi0 {
+	status = "okay";
+
+	m25p80@0 {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <25000000>;
+
+		partition@0 {
+			label = "u-boot";
+			reg = <0x000000 0x030000>;
+			read-only;
+		};
+
+		partition@30000 {
+			label = "uboot-env";
+			reg = <0x030000 0x010000>;
+			read-only;
+		};
+
+		factory: partition@40000 {
+			label = "factory";
+			reg = <0x040000 0x010000>;
+			read-only;
+		};
+
+		partition@50000 {
+			label = "firmware";
+			reg = <0x050000 0x7a0000>;
+		};
+
+		partition@7f0000 {
+			label = "user-cfg";
+			reg = <0x7f0000 0x010000>;
+			read-only;
+		};
+	};
+};
+
+&ethernet {
+	status = "okay";
+
+	port@0 {
+		mediatek,fixed-link = <1000 1 1 1>;
+		phy-mode = "rgmii";
+	};
+};
+
+&pci {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pci_pins>;
+
+	pci_pins: pci {
+		pci {
+			ralink,group = "pci";
+			ralink,function = "pci-fnc";
+		};
+	};
+
+	host-bridge {
+		pci-bridge@1 {
+			status = "okay";
+
+			wifi@1814,3091 {
+				compatible = "pci1814,3091";
+				reg = <0x10000 0 0 0 0>;
+				ralink,5ghz = <0>;
+				ralink,mtd-eeprom = <&factory 0x8000>;
+			};
+		};
+	};
+};
+
+&wmac {
+	status = "okay";
+	ralink,2ghz = <0>;
+	ralink,mtd-eeprom = <&factory 0x0>;
+};
+
+&ehci {
+	status = "okay";
+};
+
+&ohci {
+	status = "okay";
+};
