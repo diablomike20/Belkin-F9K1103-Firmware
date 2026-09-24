@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+/dts-v1/;
+
+#include "rt3883_belkin_f9k110x.dtsi"
+
+/ {
+	compatible = "belkin,f9k1103v1", "ralink,rt3883-soc";
+	model = "Belkin F9K1103 Version 1.0";
+
+	aliases {
+		led-boot = &led_power;
+		led-failsafe = &led_power;
+		led-running = &led_power;
+		led-upgrade = &led_power;
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		led_power: power {
+			label = "f9k1103v1:power";
+			gpios = <&gpio0 0 GPIO_ACTIVE_LOW>;
+		};
+
+		lan {
+			label = "f9k1103v1:lan";
+			gpios = <&gpio0 13 GPIO_ACTIVE_LOW>;
+		};
+
+		wan {
+			label = "f9k1103v1:wan";
+			gpios = <&gpio0 12 GPIO_ACTIVE_LOW>;
+		};
+
+		usb {
+			label = "f9k1103v1:usb";
+			gpios = <&gpio0 9 GPIO_ACTIVE_LOW>;
+			trigger-sources = <&ohci_port1>, <&ehci_port1>;
+			linux,default-trigger = "usbport";
+		};
+	};
+
+	keys {
+		compatible = "gpio-keys-polled";
+		poll-interval = <100>;
+
+		reset {
+			label = "reset";
+			gpios = <&gpio1 1 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_RESTART>;
+		};
+
+		wps {
+			label = "wps";
+			gpios = <&gpio1 2 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_WPS_BUTTON>;
+		};
+	};
+};
