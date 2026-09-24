@@ -34,22 +34,10 @@ sed -i 's#PKG_SOURCE_URL=$(LEDE_GIT)/keyring.git#PKG_SOURCE_URL:=https://github.
   package/system/lede-keyring/Makefile
 
 cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/F9K1103.dts" target/linux/ramips/dts/
-# Backport the OpenWrt 18.06 PLATFORM variable handling in lzma-loader.
-# The image-pipeline wrapper below passes PLATFORM explicitly.
-python3 - <<'PY_LOADER'
-from pathlib import Path
-p=Path('target/linux/ramips/image/lzma-loader/Makefile')
-s=p.read_text()
-old='BOARD\t\t:=\n'
-if old not in s:
-    raise SystemExit('lzma-loader BOARD anchor not found')
-s=s.replace(old, old+'PLATFORM\t:=\n', 1)
-old='\t\tPLATFORM="ralink" \\\n'
-if old not in s:
-    raise SystemExit('lzma-loader PLATFORM anchor not found')
-s=s.replace(old, '\t\tPLATFORM="$(PLATFORM)" \\\n', 1)
-p.write_text(s)
-PY_LOADER
+# LEDE 17.01.5's lzma-loader wrapper already passes PLATFORM="ralink"
+# to its inner loader build. Do not pass/override the later OpenWrt PLATFORM
+# variable at the outer make level: on this old tree it collides with legacy
+# build-system state and can leave TARGET_CROSS empty (observed as "cc -o .o").
 cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/010-glibc-change-work-around.patch" tools/m4/patches/010-glibc-change-work-around.patch
 # Backport OpenWrt's own post-17.01 host-glibc compatibility fixes.
 cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/010-m4-glibc-change-work-around.patch" tools/m4/patches/010-glibc-change-work-around.patch
@@ -76,7 +64,7 @@ replace_once(
 ''',
     '''define Build/loader-common
 \trm -rf $@.src
-\t$(MAKE) -C lzma-loader PKG_BUILD_DIR="$@.src" TARGET_DIR="$(dir $@)" LOADER_NAME="$(notdir $@)" BOARD="$(BOARDNAME)" PLATFORM="ralink" LZMA_TEXT_START=0x81800000 LOADADDR=$(KERNEL_LOADADDR) LOADER_DATA="$@" compile loader.bin
+\t$(MAKE) -C lzma-loader PKG_BUILD_DIR="$@.src" TARGET_DIR="$(dir $@)" LOADER_NAME="$(notdir $@)" BOARD="$(BOARDNAME)" LZMA_TEXT_START=0x81800000 LOADADDR=$(KERNEL_LOADADDR) LOADER_DATA="$@" compile loader.bin
 \tmv "$@.bin" "$@"
 \trm -rf $@.src
 endef
