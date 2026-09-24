@@ -3,7 +3,7 @@ name: Build F9K1103 OpenWrt 23.05.5
 on:
   push:
     branches:
-      - f9k1103-openwrt-23.05.5-build
+      - main
     paths:
       - '.github/workflows/build-f9k1103-openwrt-23.05.5.yml'
       - 'firmware/f9k1103/**'
