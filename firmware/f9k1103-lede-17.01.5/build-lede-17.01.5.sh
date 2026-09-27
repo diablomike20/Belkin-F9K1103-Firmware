@@ -35,6 +35,10 @@ sed -i 's#PKG_SOURCE_URL=$(LEDE_GIT)/keyring.git#PKG_SOURCE_URL:=https://github.
 
 cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/F9K1103.dts" target/linux/ramips/dts/
 
+# Failure evidence: Router-Emulator job 107686586668 reached the image stage
+# but lzma-loader invoked "cc -o .o" with no input files. Keep the stock
+# LEDE 17.01.5 inner PLATFORM=ralink contract instead of the later PLATFORM
+# passthrough that produced the empty object/source names.
 # Guard the LEDE 17.01.5 loader contract. The outer loader Makefile must pass
 # PLATFORM="ralink" to src/Makefile; overriding PLATFORM at the outer level
 # makes the inner OBJECTS list resolve to board-.o and eventually "cc -o .o".
