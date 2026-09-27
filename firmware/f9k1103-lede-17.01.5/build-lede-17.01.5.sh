@@ -34,6 +34,18 @@ sed -i 's#PKG_SOURCE_URL=$(LEDE_GIT)/keyring.git#PKG_SOURCE_URL:=https://github.
   package/system/lede-keyring/Makefile
 
 cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/F9K1103.dts" target/linux/ramips/dts/
+
+# Guard the LEDE 17.01.5 loader contract. The outer loader Makefile must pass
+# PLATFORM="ralink" to src/Makefile; overriding PLATFORM at the outer level
+# makes the inner OBJECTS list resolve to board-.o and eventually "cc -o .o".
+grep -Fq 'PLATFORM="ralink"' target/linux/ramips/image/lzma-loader/Makefile || {
+  echo "ERROR: LEDE lzma-loader no longer forces PLATFORM=ralink" >&2
+  exit 1
+}
+if grep -Eq '^[[:space:]]*PLATFORM[[:space:]]*:=' target/linux/ramips/image/lzma-loader/Makefile; then
+  echo "ERROR: outer lzma-loader must not override PLATFORM" >&2
+  exit 1
+fi
 # LEDE 17.01.5's lzma-loader wrapper already passes PLATFORM="ralink"
 # to its inner loader build. Do not pass/override the later OpenWrt PLATFORM
 # variable at the outer make level: on this old tree it collides with legacy
