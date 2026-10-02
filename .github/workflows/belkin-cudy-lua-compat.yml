@@ -24,7 +24,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p w/cudy w/belkin out
+          mkdir -p w out
+          rm -rf w/cudy w/belkin
           curl -L --fail --retry 4 -o w/cudy.zip "https://www.cudy.com/cdn/shop/files/WR1200V2-R26-2.4.23-20251224-145945-flash.zip"
           unzip -q w/cudy.zip -d w/cudyz
           CUDY=$(find w/cudyz -type f -name '*.bin' | head -1)
@@ -34,7 +35,8 @@ jobs:
           assert o>=0
           pathlib.Path(sys.argv[2]).write_bytes(d[o:])
           PY
-          unsquashfs -no-exit-code -d w/cudy w/cudy.sq >/dev/null || true
+          sudo unsquashfs -no-exit-code -d w/cudy w/cudy.sq >/dev/null 2>&1 || true
+          sudo chown -R "$(id -u):$(id -g)" w/cudy
 
           curl -L --fail --retry 4 -o w/belkin.bin "https://downloads.openwrt.org/releases/19.07.10/targets/ramips/rt3883/openwrt-19.07.10-ramips-rt3883-belkin_f9k1109v1-squashfs-sysupgrade.bin"
           echo "3996ee73ad9965a1f0d4451913ca081e1bfbfc2c1049bd4751d56927cff41ea5  w/belkin.bin" | sha256sum -c -
@@ -44,7 +46,8 @@ jobs:
           assert o>=0
           pathlib.Path(sys.argv[2]).write_bytes(d[o:])
           PY
-          unsquashfs -no-exit-code -d w/belkin w/belkin.sq >/dev/null || true
+          sudo unsquashfs -no-exit-code -d w/belkin w/belkin.sq >/dev/null 2>&1 || true
+          sudo chown -R "$(id -u):$(id -g)" w/belkin
 
           file w/belkin/usr/bin/lua w/cudy/usr/bin/lua > out/lua_file_types.txt
           sha256sum w/belkin/usr/bin/lua w/cudy/usr/bin/lua > out/lua_sha256.txt
