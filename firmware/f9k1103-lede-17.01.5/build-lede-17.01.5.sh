@@ -80,7 +80,7 @@ replace_once(
 ''',
     '''define Build/loader-common
 \trm -rf $@.src
-\t$(MAKE) -C lzma-loader PKG_BUILD_DIR="$@.src" TARGET_DIR="$(dir $@)" LOADER_NAME="$(notdir $@)" BOARD="$(BOARDNAME)" LZMA_TEXT_START=0x81800000 LOADADDR=$(KERNEL_LOADADDR) LOADER_DATA="$@" compile loader.bin
+\t$(MAKE) -C lzma-loader PKG_BUILD_DIR="$@.src" TARGET_DIR="$(dir $@)" LOADER_NAME="$(notdir $@)" BOARD="$(DTS)" LZMA_TEXT_START=0x81800000 LOADADDR=$(KERNEL_LOADADDR) LOADER_DATA="$@" compile loader.bin
 \tmv "$@.bin" "$@"
 \trm -rf $@.src
 endef
