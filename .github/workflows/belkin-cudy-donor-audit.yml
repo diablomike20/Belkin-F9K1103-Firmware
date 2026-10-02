@@ -61,6 +61,10 @@ jobs:
           get "https://www.cudy.com/cdn/shop/files/WR1200V2-R26-2.4.23-20251224-145945-flash.zip" \
               "WR1200V2-R26-2.4.23-20251224-145945-flash.zip"
 
+          # Current 8/64 Cudy generation: same resource class, CSP2.5-era UI/userspace.
+          get "https://www.cudy.com/cdn/shop/files/WR1200V3-R149-2.5.24-20260727-130115-flash.zip" \
+              "WR1200V3-R149-2.5.24-20260727-130115-flash.zip"
+
           # Gigabit / USB Cudy lineage references.
           get "https://www.cudy.com/cdn/shop/files/WR1300-R10-1.13.6-20220314-112409-flash_1.zip" \
               "WR1300-R10-1.13.6-20220314-112409-flash_1.zip"
