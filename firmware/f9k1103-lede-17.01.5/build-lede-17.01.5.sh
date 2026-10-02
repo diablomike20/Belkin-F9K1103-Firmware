@@ -127,11 +127,9 @@ define Device/f9k1103
   BLOCKSIZE := 64k
   IMAGE_SIZE := 7808k
   UIMAGE_NAME := N750F9K1103VB
-  # Belkin's stock U-Boot has known LZMA decompression issues on this
-  # F9K110x platform family. Embed the LZMA kernel in OpenWrt's tiny
-  # self-relocating loader and mark the outer uImage as uncompressed.
-  LOADER_TYPE := bin
-  KERNEL := kernel-bin | patch-dtb | lzma | loader-kernel | uImage none
+  # Match the hardware-proven OpenWrt 19.07 F9K1109v1 kernel format:
+  # direct LZMA uImage, 16 MiB dictionary, stock Belkin uImage name.
+  KERNEL := kernel-bin | patch-dtb | lzma -d16 | uImage lzma
   DEVICE_TITLE := Belkin F9K1103 v1
   DEVICE_PACKAGES := kmod-usb-core kmod-usb-ohci kmod-usb2 swconfig
 endef
@@ -235,7 +233,7 @@ Target: ramips/rt3883
 DTS: F9K1103
 uImage name: N750F9K1103VB
 Firmware partition: 0x50000 + 0x7a0000
-Status: PORT-WIP / build-verified / NOT hardware-runtime-verified
+Status: PORT-WIP / direct-LZMA build candidate / NOT hardware-runtime-verified
 EOF
 
 python3 - "$OUT" <<'PY'
