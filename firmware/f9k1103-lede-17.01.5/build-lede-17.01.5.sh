@@ -214,12 +214,11 @@ CONFIG_TARGET_ramips_rt3883=y
 CONFIG_TARGET_ramips_rt3883_DEVICE_f9k1103=y
 CONFIG_TARGET_ROOTFS_SQUASHFS=y
 CONFIG_TARGET_ROOTFS_INITRAMFS=y
-CONFIG_PACKAGE_luci=y
 CFG
 
 make defconfig
-make -j2 download
-make -j2 V=s
+make -j$(nproc) download
+make -j$(nproc) V=s
 
 cp -av bin/targets/ramips/rt3883/*f9k1103* "$OUT/" || true
 cp -av "$GITHUB_WORKSPACE/F9K1103-LEDE-17.01.5.patch" "$OUT/"
@@ -233,7 +232,7 @@ Target: ramips/rt3883
 DTS: F9K1103
 uImage name: N750F9K1103VB
 Firmware partition: 0x50000 + 0x7a0000
-Status: PORT-WIP / direct-LZMA build candidate / NOT hardware-runtime-verified
+Status: PORT-WIP / minimal direct-LZMA boot baseline / NOT hardware-runtime-verified
 EOF
 
 python3 - "$OUT" <<'PY'
