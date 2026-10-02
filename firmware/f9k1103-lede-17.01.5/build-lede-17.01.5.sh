@@ -262,7 +262,7 @@ for p in bins:
         hcrc==calc_h and
         dcrc==calc_d and
         name=='N750F9K1103VB' and
-        comp==0 and
+        comp==3 and
         len(b)<=0x7a0000 and
         squash>=0
     )
@@ -273,7 +273,7 @@ for p in bins:
         f'uimage_magic=0x{magic:08x}',
         f'uimage_name={name}',
         f'uimage_payload_size={size}',
-        f'outer_compression={comp} (0=none)',
+        f'outer_compression={comp} (3=lzma)',
         f'load=0x{load:08x}',
         f'entry=0x{entry:08x}',
         f'header_crc_ok={hcrc==calc_h}',
