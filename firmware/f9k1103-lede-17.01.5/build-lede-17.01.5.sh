@@ -116,7 +116,7 @@ define Build/relocate-kernel
 ''',
 )
 
-# 1. Image recipe. 7808 KiB == 0x7a0000 firmware partition.
+# 1. Image recipe. Match the upstream F9K1109v1 safety limit (7224 KiB) inside the 0x7a0000 physical firmware partition.
 replace_once(
     'target/linux/ramips/image/rt3883.mk',
     'TARGET_DEVICES += rt-n56u\n',
@@ -125,7 +125,7 @@ replace_once(
 define Device/f9k1103
   DTS := F9K1103
   BLOCKSIZE := 64k
-  IMAGE_SIZE := 7808k
+  IMAGE_SIZE := 7224k
   UIMAGE_NAME := N750F9K1103VB
   # Match the hardware-proven OpenWrt 19.07 F9K1109v1 kernel format:
   # direct LZMA uImage, 16 MiB dictionary, stock Belkin uImage name.
@@ -263,13 +263,14 @@ for p in bins:
         dcrc==calc_d and
         name=='N750F9K1103VB' and
         comp==3 and
-        len(b)<=0x7a0000 and
+        len(b)<=7224*1024 and
         squash>=0
     )
     report += [
         f'file={p.name}',
         f'total_size={len(b)}',
-        f'partition_limit={0x7a0000}',
+        f'physical_partition_limit={0x7a0000}',
+        f'upstream_image_limit={7224*1024}',
         f'uimage_magic=0x{magic:08x}',
         f'uimage_name={name}',
         f'uimage_payload_size={size}',
@@ -279,7 +280,8 @@ for p in bins:
         f'header_crc_ok={hcrc==calc_h}',
         f'payload_crc_ok={dcrc==calc_d}',
         f'squashfs_offset={squash}',
-        f'fits_partition={len(b)<=0x7a0000}',
+        f'fits_upstream_image_limit={len(b)<=7224*1024}',
+        f'fits_physical_partition={len(b)<=0x7a0000}',
         f'VALIDATION={"PASS" if ok else "FAIL"}',
         ''
     ]
