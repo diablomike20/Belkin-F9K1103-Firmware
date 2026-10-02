@@ -6,6 +6,7 @@ on:
       - main
       - lede-17.01.5-fix-board-token
       - lede-17.01.5-direct-lzma
+      - lede-17.01.5-clean-direct
     paths:
       - '.github/workflows/build-f9k1103-lede-17.01.5.yml'
       - 'firmware/f9k1103-lede-17.01.5/**'
@@ -15,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: f9k1103-lede-17.01.5-direct-lzma-build
+  group: f9k1103-lede-17.01.5-clean-direct-build
   cancel-in-progress: true
 
 jobs:
