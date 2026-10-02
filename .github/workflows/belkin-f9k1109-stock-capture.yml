@@ -1,0 +1,63 @@
+name: Belkin F9K1109 stock firmware capture
+
+on:
+  push:
+    branches:
+      - cudy-donor-audit
+    paths:
+      - ".github/workflows/belkin-f9k1109-stock-capture.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Install tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq squashfs-tools file binutils-mipsel-linux-gnu >/dev/null
+      - name: Download and inspect official F9K1109 v1 stock 1.10.16
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out root
+          curl -L --fail --retry 4 --retry-delay 2 \
+            -o out/F9K1109_WW_1.10.16.bin \
+            "https://s3.belkin.com/support/dl/F9K1109_WW_1.10.16.bin"
+          sha256sum out/F9K1109_WW_1.10.16.bin > out/SHA256SUMS.txt
+          file out/F9K1109_WW_1.10.16.bin > out/file.txt
+          ls -l out/F9K1109_WW_1.10.16.bin > out/size.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('out/F9K1109_WW_1.10.16.bin')
+          d=p.read_bytes()
+          rows=[]
+          for magic,name in [(bytes.fromhex('27051956'),'uImage'),(b'hsqs','SquashFS'),(b'sqsh','SquashFS-BE')]:
+              start=0
+              while True:
+                  i=d.find(magic,start)
+                  if i<0: break
+                  rows.append((name,i)); start=i+1
+          Path('out/magic_offsets.tsv').write_text('type\toffset\n'+'\n'.join(f'{a}\t{b}' for a,b in rows)+'\n')
+          PY
+          OFF=$(awk -F'\t' '$1=="SquashFS"{print $2;exit}' out/magic_offsets.tsv || true)
+          if [ -n "$OFF" ]; then
+            tail -c "+$((OFF+1))" out/F9K1109_WW_1.10.16.bin > out/F9K1109_WW_1.10.16.squashfs
+            unsquashfs -no-exit-code -d root out/F9K1109_WW_1.10.16.squashfs >/dev/null 2>&1 || true
+            find root -type f | sed 's#^root/##' | sort > out/rootfs_files.txt || true
+            find root -type f | wc -l > out/rootfs_file_count.txt || true
+            [ -f root/etc/version ] && cp root/etc/version out/rootfs_etc_version.txt || true
+            [ -f root/etc/openwrt_release ] && cp root/etc/openwrt_release out/rootfs_openwrt_release.txt || true
+            find root/etc/init.d -maxdepth 1 -type f -printf '%f\n' 2>/dev/null | sort > out/rootfs_init.txt || true
+            find root/lib/modules -type f -name '*.ko' -printf '%P\n' 2>/dev/null | sort > out/rootfs_modules.txt || true
+          fi
+          echo "F9K1109_STOCK_CAPTURE=PASS" > out/result.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BELKIN-F9K1109-STOCK-1.10.16
+          path: out
+          compression-level: 0
