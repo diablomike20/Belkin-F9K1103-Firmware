@@ -61,6 +61,29 @@ cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/110-findutils-glibc-change-w
 cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/125-e2fsprogs-glibc-sysmacros.patch" tools/e2fsprogs/patches/125-glibc-2.23-sysmacros.patch
 cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/120-bison-glibc-2.28.patch" tools/bison/patches/120-glibc-2.28-fseterr.patch
 
+# Modern MIPS binutils emit a .MIPS.abiflags section even for this old loader.
+# LEDE 17.01.5's objcopy filter predates that section; because .text is linked
+# at 0x81800000, retaining a low-address .MIPS.abiflags section makes objcopy
+# attempt a multi-gigabyte/negative output offset and fail with "File truncated".
+# OpenWrt 19.07 fixed the same class of issue by dropping .MIPS.abiflags from
+# the raw loader binary. Backport only that compatibility fix here.
+python3 - <<'PY_LZMA_ABIFLAGS'
+from pathlib import Path
+p=Path('target/linux/ramips/image/lzma-loader/src/Makefile')
+s=p.read_text()
+old='BIN_FLAGS\t:= -O binary -R .reginfo -R .note -R .comment -R .mdebug -S'
+new='BIN_FLAGS\t:= -O binary -R .reginfo -R .note -R .comment -R .mdebug -R .MIPS.abiflags -S'
+if old not in s:
+    raise SystemExit('lzma-loader BIN_FLAGS anchor not found')
+p.write_text(s.replace(old,new,1))
+print('lzma-loader .MIPS.abiflags objcopy filter: APPLIED')
+PY_LZMA_ABIFLAGS
+
+grep -Fq -- '-R .MIPS.abiflags' target/linux/ramips/image/lzma-loader/src/Makefile || {
+  echo "ERROR: .MIPS.abiflags filter was not applied" >&2
+  exit 1
+}
+
 python3 - <<'PY'
 from pathlib import Path
 
