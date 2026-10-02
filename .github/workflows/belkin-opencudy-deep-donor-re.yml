@@ -1,0 +1,270 @@
+name: Belkin OpenCudy deep donor RE
+
+on:
+  push:
+    branches:
+      - cudy-donor-audit
+    paths:
+      - ".github/workflows/belkin-opencudy-deep-donor-re.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  deep-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Install tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq squashfs-tools binutils-mipsel-linux-gnu file python3 unzip >/dev/null
+
+      - name: Fetch and extract exact selected donors
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work roots reports ui-size
+          cd work
+          get(){ curl -L --fail --retry 4 --retry-delay 2 -o "$2" "$1"; }
+
+          get "https://www.cudy.com/cdn/shop/files/WR1200V2-R26-2.4.23-20251224-145945-flash.zip" wr1200.zip
+          unzip -q wr1200.zip -d wr1200z
+          WR1200=$(find wr1200z -type f -name '*.bin' | head -1)
+
+          get "https://www.cudy.com/cdn/shop/files/WR1300-R10-1.13.6-20220314-112409-flash_1.zip" wr1300.zip
+          unzip -q wr1300.zip -d wr1300z
+          WR1300=$(find wr1300z -type f -name '*.bin' | head -1)
+
+          get "https://www.cudy.com/cdn/shop/files/WR2100-R11-1.14.25-20220730-212246-flash.zip" wr2100.zip
+          unzip -q wr2100.zip -d wr2100z
+          WR2100=$(find wr2100z -type f -name '*.bin' | head -1)
+
+          get "https://d1jvyy13vm72kv.cloudfront.net/device/upgrade/upgrade_LT500V2-R25-2.4.16-20250804-150319-flash_20729.bin" lt500.bin
+          echo "57aed945a9f485d178d73a844e420fc2b441e60821e243d3d19d07dd4a3143d6  lt500.bin" | sha256sum -c -
+
+          get "https://downloads.openwrt.org/releases/19.07.10/targets/ramips/rt3883/openwrt-19.07.10-ramips-rt3883-belkin_f9k1109v1-squashfs-sysupgrade.bin" belkin.bin
+          echo "3996ee73ad9965a1f0d4451913ca081e1bfbfc2c1049bd4751d56927cff41ea5  belkin.bin" | sha256sum -c -
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess, shutil
+          items={
+            'WR1200_2.4.23': Path(next(Path('wr1200z').rglob('*.bin'))),
+            'WR1300_1.13.6': Path(next(Path('wr1300z').rglob('*.bin'))),
+            'WR2100_1.14.25': Path(next(Path('wr2100z').rglob('*.bin'))),
+            'LT500D_2.4.16': Path('lt500.bin'),
+            'BELKIN_F9K1109_19.07.10': Path('belkin.bin'),
+          }
+          for name,p in items.items():
+              d=p.read_bytes()
+              off=d.find(b'hsqs')
+              if off<0: raise SystemExit(f'no squashfs {name}')
+              sq=Path('../')/f'{name}.squashfs'
+              sq.write_bytes(d[off:])
+              root=Path('../roots')/name
+              subprocess.run(['unsquashfs','-no-exit-code','-d',str(root),str(sq)],check=False,stdout=subprocess.DEVNULL)
+          PY
+
+      - name: Inventory packages services modules configs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import csv, hashlib, os, re, subprocess, json
+          R=Path('roots'); O=Path('reports')
+
+          def sha(p):
+              h=hashlib.sha256()
+              with open(p,'rb') as f:
+                  for b in iter(lambda:f.read(1<<20),b''):h.update(b)
+              return h.hexdigest()
+
+          summary=[]
+          for root in sorted(R.iterdir()):
+              if not root.is_dir(): continue
+              name=root.name
+              # file type census
+              counts={'file':0,'dir':0,'symlink':0}
+              for p in root.rglob('*'):
+                  if p.is_symlink(): counts['symlink']+=1
+                  elif p.is_file(): counts['file']+=1
+                  elif p.is_dir(): counts['dir']+=1
+
+              # kernel/modules
+              mods=[]
+              md=root/'lib/modules'
+              if md.exists():
+                  for p in md.rglob('*.ko'): mods.append(str(p.relative_to(root)))
+              (O/f'{name}__kernel_modules.txt').write_text('\n'.join(sorted(mods))+'\n')
+
+              # init/config/defaults
+              for tag,sub in [('init','etc/init.d'),('config','etc/config'),('uci_defaults','etc/uci-defaults')]:
+                  base=root/sub
+                  vals=[]
+                  if base.exists():
+                      for p in sorted(base.iterdir()):
+                          vals.append(f"{sha(p) if p.is_file() else '-'}\t{p.name}")
+                  (O/f'{name}__{tag}.tsv').write_text('\n'.join(vals)+'\n')
+
+              # package DB
+              status=root/'usr/lib/opkg/status'
+              packages=[]
+              if status.exists():
+                  txt=status.read_text(errors='replace')
+                  for block in re.split(r'\n\s*\n',txt):
+                      fields={}
+                      for line in block.splitlines():
+                          if ': ' in line:
+                              k,v=line.split(': ',1); fields[k]=v
+                      if fields.get('Package'):
+                          packages.append((fields.get('Package',''),fields.get('Version',''),fields.get('Architecture',''),fields.get('Installed-Size','')))
+              with open(O/f'{name}__packages.csv','w',newline='') as f:
+                  w=csv.writer(f);w.writerow(['package','version','architecture','installed_size']);w.writerows(packages)
+
+              # Cudy/access/platform components presence
+              components=[
+                'usr/bin/bdinfo','usr/lib/libbdinfo.so','usr/sbin/hcshd','usr/sbin/cmagent','usr/sbin/cmsd',
+                'usr/bin/gcom','usr/lib/lua/luci/description.lua','usr/lib/lua/luci/gui.lua','usr/lib/lua/luci/forbidden.lua',
+                'etc/init.d/dropbear','etc/init.d/telnet','etc/init.d/mosquitto','etc/init.d/hcsh','etc/init.d/cmagent','etc/init.d/cmsd',
+                'sbin/oem-check','usr/sbin/swconfig','sbin/swconfig'
+              ]
+              with open(O/f'{name}__component_presence.csv','w',newline='') as f:
+                  w=csv.writer(f);w.writerow(['path','present','sha256'])
+                  for c in components:
+                      p=root/c;w.writerow([c,p.exists(),sha(p) if p.is_file() else ''])
+
+              # architecture facts from key ELFs
+              facts=[]
+              for c in ['bin/busybox','usr/sbin/uhttpd','usr/bin/lua','usr/sbin/hcshd','usr/sbin/cmagent','usr/sbin/cmsd','usr/bin/bdinfo']:
+                  p=root/c
+                  if p.exists():
+                      fi=subprocess.run(['file',str(p)],text=True,capture_output=True).stdout.strip()
+                      facts.append((c,fi,sha(p)))
+              with open(O/f'{name}__elf_facts.tsv','w') as f:
+                  for row in facts:f.write('\t'.join(row)+'\n')
+
+              # Hardware/platform string hints from bounded set
+              hints=[]
+              patterns=re.compile(r'(RT3883|MT7628|MT7621|MT7663|MT761[0-9]|RTL8367|R25|R26|WR1200|WR1300|WR2100|F9K1109|usb0|ra0|rai0|wlan)',re.I)
+              for rel in ['etc/openwrt_release','lib/ramips.sh','etc/board.d/01_leds','etc/uci-defaults/30_wlan','etc/uci-defaults/01_network']:
+                  p=root/rel
+                  if p.exists() and p.is_file():
+                      t=p.read_text(errors='replace')
+                      for line in t.splitlines():
+                          if patterns.search(line): hints.append(f'{rel}\t{line[:500]}')
+              (O/f'{name}__platform_hints.tsv').write_text('\n'.join(hints)+'\n')
+
+              summary.append([name,counts['file'],counts['symlink'],len(packages),len(mods)])
+          with open(O/'deep_rootfs_summary.csv','w',newline='') as f:
+              w=csv.writer(f);w.writerow(['rootfs','regular_files','symlinks','opkg_packages','kernel_modules']);w.writerows(summary)
+          PY
+
+      - name: Exact LT500D to WR1200 GUI and dependency diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,csv,re,subprocess,os
+          A=Path('roots/LT500D_2.4.16'); B=Path('roots/WR1200_2.4.23'); O=Path('reports')
+          def sha(p):
+              return hashlib.sha256(p.read_bytes()).hexdigest()
+          def fmap(root):
+              return {str(p.relative_to(root)):p for p in root.rglob('*') if p.is_file()}
+          fa,fb=fmap(A),fmap(B)
+          ui=lambda s: s.startswith('usr/lib/lua/luci/') or s.startswith('www/')
+          ua={k:v for k,v in fa.items() if ui(k)}; ub={k:v for k,v in fb.items() if ui(k)}
+          rows=[]
+          for p in sorted(set(ua)|set(ub)):
+              if p in ua and p in ub:
+                  same=sha(ua[p])==sha(ub[p]); st='IDENTICAL' if same else 'CHANGED'
+              elif p in ua: st='LT500_ONLY'
+              else: st='WR1200_ONLY'
+              rows.append([p,st,ua[p].stat().st_size if p in ua else '',ub[p].stat().st_size if p in ub else '',sha(ua[p]) if p in ua else '',sha(ub[p]) if p in ub else ''])
+          with open(O/'lt500_vs_wr1200_ui_file_delta.csv','w',newline='') as f:
+              w=csv.writer(f);w.writerow(['path','status','lt500_bytes','wr1200_bytes','lt500_sha256','wr1200_sha256']);w.writerows(rows)
+
+          # dependency strings for every WR1200 Cudy UI file
+          hard = {
+             'bdinfo':re.compile(r'bdinfo',re.I),'mcore':re.compile(r'mcore',re.I),'gcom':re.compile(r'gcom',re.I),
+             'cmagent':re.compile(r'cmagent',re.I),'cmsd':re.compile(r'cmsd',re.I),'iwpriv':re.compile(r'iwpriv',re.I),
+             'ralink_if':re.compile(r'\b(ra[0-9]*|rai[0-9]*|wlan[0-9]+)\b',re.I),
+             'swconfig':re.compile(r'swconfig',re.I),'mtd':re.compile(r'(/dev/mtd|/proc/mtd)',re.I),
+             'usb':re.compile(r'usb',re.I),'shell_exec':re.compile(r'(luci\.util\.(exec|execl)|sys\.call|os\.execute|io\.popen|popen)',re.I)
+          }
+          dep=[]
+          for rel,p in sorted(ub.items()):
+              # strings handles Lua bytecode without executing it
+              s=subprocess.run(['strings','-a',str(p)],text=True,capture_output=True).stdout
+              found=[k for k,rx in hard.items() if rx.search(s)]
+              dep.append([rel,','.join(found) if found else 'NONE'])
+          with open(O/'wr1200_ui_dependency_classification.csv','w',newline='') as f:
+              w=csv.writer(f);w.writerow(['path','dependency_markers']);w.writerows(dep)
+
+          # exact SHA of core Cudy framework
+          core=['usr/lib/lua/luci/description.lua','usr/lib/lua/luci/gui.lua','usr/lib/lua/luci/forbidden.lua']
+          with open(O/'cudy_core_framework_hashes.csv','w',newline='') as f:
+              w=csv.writer(f);w.writerow(['path','lt500_sha256','wr1200_sha256','identical'])
+              for x in core:
+                  ah=sha(A/x);bh=sha(B/x);w.writerow([x,ah,bh,ah==bh])
+          PY
+
+          # Compressed UI footprint estimate with the same squashfs/xz family.
+          for n in WR1200_2.4.23 LT500D_2.4.16; do
+            mkdir -p "ui-size/$n/usr/lib/lua" "ui-size/$n/www"
+            cp -a "roots/$n/usr/lib/lua/luci" "ui-size/$n/usr/lib/lua/"
+            [ -d "roots/$n/www/luci-static" ] && cp -a "roots/$n/www/luci-static" "ui-size/$n/www/"
+            [ -f "roots/$n/www/index.html" ] && cp -a "roots/$n/www/index.html" "ui-size/$n/www/"
+            mksquashfs "ui-size/$n" "ui-size/$n.squashfs" -noappend -comp xz -b 262144 -all-root >/dev/null
+          done
+          {
+            stat -c '%n,%s' ui-size/*.squashfs
+            du -sb ui-size/WR1200_2.4.23 ui-size/LT500D_2.4.16
+          } > reports/ui_footprint_estimate.txt
+
+      - name: Belkin 19.07 compatibility gap
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import csv,re,hashlib
+          B=Path('roots/BELKIN_F9K1109_19.07.10'); W=Path('roots/WR1200_2.4.23'); O=Path('reports')
+          # compare runtime libraries/interpreters required by pure Lua/UI transplant
+          items=['usr/bin/lua','usr/lib/liblua.so.5.1.5','usr/lib/lua/luci','usr/lib/lua/luci/model/uci.lua','usr/lib/lua/luci/util.lua','usr/lib/lua/luci/http.lua','usr/lib/lua/luci/dispatcher.lua','usr/sbin/uhttpd','usr/lib/uhttpd_lua.so','usr/lib/uhttpd_ubus.so']
+          with open(O/'belkin_vs_wr1200_runtime_primitives.csv','w',newline='') as f:
+              w=csv.writer(f);w.writerow(['path','belkin','wr1200'])
+              for x in items:w.writerow([x,(B/x).exists(),(W/x).exists()])
+          # firmware budget against F9K1109 OpenWrt image-size recipe (7808 KiB)
+          cap=7808*1024
+          current=3866905
+          wrimg=7930011
+          with open(O/'belkin_flash_budget.txt','w') as f:
+              f.write(f'F9K1109_OPENWRT_IMAGE_CAP_BYTES={cap}\n')
+              f.write(f'OPENWRT_19_07_10_CURRENT_IMAGE_BYTES={current}\n')
+              f.write(f'CURRENT_IMAGE_HEADROOM_TO_CAP_BYTES={cap-current}\n')
+              f.write(f'WR1200_2_4_23_WHOLE_INNER_IMAGE_BYTES={wrimg}\n')
+              f.write(f'WR1200_WHOLE_IMAGE_MARGIN_TO_BELKIN_CAP_BYTES={cap-wrimg}\n')
+              f.write('NOTE=Whole-image sizes are comparison only; Cudy image is NOT flash-compatible with Belkin.\n')
+          PY
+
+      - name: Package reports
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum reports/* > reports/SHA256SUMS.txt
+          zip -qr BELKIN-OPENCUDY-DEEP-DONOR-RE-02.zip reports ui-size/*.squashfs
+          sha256sum BELKIN-OPENCUDY-DEEP-DONOR-RE-02.zip > BELKIN-OPENCUDY-DEEP-DONOR-RE-02.zip.sha256
+          echo "DEEP_DONOR_RE=PASS" > result.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BELKIN-OPENCUDY-DEEP-DONOR-RE-02
+          path: |
+            BELKIN-OPENCUDY-DEEP-DONOR-RE-02.zip
+            BELKIN-OPENCUDY-DEEP-DONOR-RE-02.zip.sha256
+            result.txt
+          compression-level: 0
