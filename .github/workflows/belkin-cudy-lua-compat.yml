@@ -58,13 +58,15 @@ jobs:
               file "w/cudy/$p"
               od -An -tx1 -N16 "w/cudy/$p" | tr -s ' '
               P="$PWD/w/cudy/$p"
-              qemu-mipsel -L "$PWD/w/belkin" "$PWD/w/belkin/usr/bin/lua" -e 'local f,e=loadfile(arg[1]); if f then print("BELKIN_LUA_LOAD=PASS") else print("BELKIN_LUA_LOAD=FAIL",e); os.exit(f and 0 or 2) end' "$P" || true
+              P="$P" qemu-mipsel -L "$PWD/w/belkin" "$PWD/w/belkin/usr/bin/lua" -e 'local p=os.getenv("P"); local f,e=loadfile(p); if f then print("BELKIN_LUA_LOAD=PASS",p) else print("BELKIN_LUA_LOAD=FAIL",p,e); os.exit(f and 0 or 2) end' || true
             done
           } > out/compat_results.txt 2>&1
-          grep -c 'BELKIN_LUA_LOAD=PASS' out/compat_results.txt > out/pass_count.txt
+          grep -c 'BELKIN_LUA_LOAD=PASS' out/compat_results.txt > out/pass_count.txt || true
           grep -c 'BELKIN_LUA_LOAD=FAIL' out/compat_results.txt > out/fail_count.txt || true
+          cat out/compat_results.txt
           echo "LUA_COMPAT_STATIC_TEST=PASS" > out/result.txt
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: BELKIN-CUDY-LUA-COMPAT
           path: out
