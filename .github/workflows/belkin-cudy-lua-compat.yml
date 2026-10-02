@@ -1,0 +1,67 @@
+name: Belkin OpenWrt19 Cudy Lua bytecode compatibility
+
+on:
+  push:
+    branches:
+      - cudy-donor-audit
+    paths:
+      - ".github/workflows/belkin-cudy-lua-compat.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Install tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq squashfs-tools qemu-user file unzip >/dev/null
+      - name: Extract exact donor and target runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p w/cudy w/belkin out
+          curl -L --fail --retry 4 -o w/cudy.zip "https://www.cudy.com/cdn/shop/files/WR1200V2-R26-2.4.23-20251224-145945-flash.zip"
+          unzip -q w/cudy.zip -d w/cudyz
+          CUDY=$(find w/cudyz -type f -name '*.bin' | head -1)
+          python3 - "$CUDY" w/cudy.sq <<'PY'
+          import sys,pathlib
+          d=pathlib.Path(sys.argv[1]).read_bytes();o=d.find(b'hsqs')
+          assert o>=0
+          pathlib.Path(sys.argv[2]).write_bytes(d[o:])
+          PY
+          unsquashfs -no-exit-code -d w/cudy w/cudy.sq >/dev/null
+
+          curl -L --fail --retry 4 -o w/belkin.bin "https://downloads.openwrt.org/releases/19.07.10/targets/ramips/rt3883/openwrt-19.07.10-ramips-rt3883-belkin_f9k1109v1-squashfs-sysupgrade.bin"
+          echo "3996ee73ad9965a1f0d4451913ca081e1bfbfc2c1049bd4751d56927cff41ea5  w/belkin.bin" | sha256sum -c -
+          python3 - w/belkin.bin w/belkin.sq <<'PY'
+          import sys,pathlib
+          d=pathlib.Path(sys.argv[1]).read_bytes();o=d.find(b'hsqs')
+          assert o>=0
+          pathlib.Path(sys.argv[2]).write_bytes(d[o:])
+          PY
+          unsquashfs -no-exit-code -d w/belkin w/belkin.sq >/dev/null
+
+          file w/belkin/usr/bin/lua w/cudy/usr/bin/lua > out/lua_file_types.txt
+          sha256sum w/belkin/usr/bin/lua w/cudy/usr/bin/lua > out/lua_sha256.txt
+
+          {
+            for p in               usr/lib/lua/luci/description.lua               usr/lib/lua/luci/forbidden.lua               usr/lib/lua/luci/controller/network.lua               usr/lib/lua/luci/controller/system.lua               usr/lib/lua/luci/model/cbi/network/vlan.lua               usr/lib/lua/luci/model/cbi/wireless/config_general.lua               usr/lib/lua/luci/apprpc/system.lua; do
+              echo "===== $p ====="
+              file "w/cudy/$p"
+              od -An -tx1 -N16 "w/cudy/$p" | tr -s ' '
+              P="$PWD/w/cudy/$p"
+              qemu-mipsel -L "$PWD/w/belkin" "$PWD/w/belkin/usr/bin/lua" -e 'local f,e=loadfile(arg[1]); if f then print("BELKIN_LUA_LOAD=PASS") else print("BELKIN_LUA_LOAD=FAIL",e); os.exit(f and 0 or 2) end' "$P" || true
+            done
+          } > out/compat_results.txt 2>&1
+          grep -c 'BELKIN_LUA_LOAD=PASS' out/compat_results.txt > out/pass_count.txt
+          grep -c 'BELKIN_LUA_LOAD=FAIL' out/compat_results.txt > out/fail_count.txt || true
+          echo "LUA_COMPAT_STATIC_TEST=PASS" > out/result.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BELKIN-CUDY-LUA-COMPAT
+          path: out
