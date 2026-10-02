@@ -35,25 +35,6 @@ sed -i 's#PKG_SOURCE_URL=$(LEDE_GIT)/keyring.git#PKG_SOURCE_URL:=https://github.
 
 cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/F9K1103.dts" target/linux/ramips/dts/
 
-# Failure evidence: Router-Emulator job 107686586668 reached the image stage
-# but lzma-loader invoked "cc -o .o" with no input files. Keep the stock
-# LEDE 17.01.5 inner PLATFORM=ralink contract instead of the later PLATFORM
-# passthrough that produced the empty object/source names.
-# Guard the LEDE 17.01.5 loader contract. The outer loader Makefile must pass
-# PLATFORM="ralink" to src/Makefile; overriding PLATFORM at the outer level
-# makes the inner OBJECTS list resolve to board-.o and eventually "cc -o .o".
-grep -Fq 'PLATFORM="ralink"' target/linux/ramips/image/lzma-loader/Makefile || {
-  echo "ERROR: LEDE lzma-loader no longer forces PLATFORM=ralink" >&2
-  exit 1
-}
-if grep -Eq '^[[:space:]]*PLATFORM[[:space:]]*:=' target/linux/ramips/image/lzma-loader/Makefile; then
-  echo "ERROR: outer lzma-loader must not override PLATFORM" >&2
-  exit 1
-fi
-# LEDE 17.01.5's lzma-loader wrapper already passes PLATFORM="ralink"
-# to its inner loader build. Do not pass/override the later OpenWrt PLATFORM
-# variable at the outer make level: on this old tree it collides with legacy
-# build-system state and can leave TARGET_CROSS empty (observed as "cc -o .o").
 cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/010-glibc-change-work-around.patch" tools/m4/patches/010-glibc-change-work-around.patch
 # Backport OpenWrt's own post-17.01 host-glibc compatibility fixes.
 cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/010-m4-glibc-change-work-around.patch" tools/m4/patches/010-glibc-change-work-around.patch
@@ -61,28 +42,6 @@ cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/110-findutils-glibc-change-w
 cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/125-e2fsprogs-glibc-sysmacros.patch" tools/e2fsprogs/patches/125-glibc-2.23-sysmacros.patch
 cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/120-bison-glibc-2.28.patch" tools/bison/patches/120-glibc-2.28-fseterr.patch
 
-# Modern MIPS binutils emit a .MIPS.abiflags section even for this old loader.
-# LEDE 17.01.5's objcopy filter predates that section; because .text is linked
-# at 0x81800000, retaining a low-address .MIPS.abiflags section makes objcopy
-# attempt a multi-gigabyte/negative output offset and fail with "File truncated".
-# OpenWrt 19.07 fixed the same class of issue by dropping .MIPS.abiflags from
-# the raw loader binary. Backport only that compatibility fix here.
-python3 - <<'PY_LZMA_ABIFLAGS'
-from pathlib import Path
-p=Path('target/linux/ramips/image/lzma-loader/src/Makefile')
-s=p.read_text()
-old='BIN_FLAGS\t:= -O binary -R .reginfo -R .note -R .comment -R .mdebug -S'
-new='BIN_FLAGS\t:= -O binary -R .reginfo -R .note -R .comment -R .mdebug -R .MIPS.abiflags -S'
-if old not in s:
-    raise SystemExit('lzma-loader BIN_FLAGS anchor not found')
-p.write_text(s.replace(old,new,1))
-print('lzma-loader .MIPS.abiflags objcopy filter: APPLIED')
-PY_LZMA_ABIFLAGS
-
-grep -Fq -- '-R .MIPS.abiflags' target/linux/ramips/image/lzma-loader/src/Makefile || {
-  echo "ERROR: .MIPS.abiflags filter was not applied" >&2
-  exit 1
-}
 
 python3 - <<'PY'
 from pathlib import Path
@@ -93,28 +52,6 @@ def replace_once(path, old, new):
     if old not in s:
         raise SystemExit(f'anchor not found in {path}: {old!r}')
     p.write_text(s.replace(old,new,1))
-
-# 0. Backport the later ramips embedded LZMA loader image command.
-# LEDE 17.01.5 already contains target/linux/ramips/image/lzma-loader;
-# it only lacks the image-pipeline wrapper added later upstream.
-replace_once(
-    'target/linux/ramips/image/Makefile',
-    '''define Build/relocate-kernel
-''',
-    '''define Build/loader-common
-\trm -rf $@.src
-\t$(MAKE) -C lzma-loader PKG_BUILD_DIR="$@.src" TARGET_DIR="$(dir $@)" LOADER_NAME="$(notdir $@)" BOARD="$(DTS)" LZMA_TEXT_START=0x81800000 LOADADDR=$(KERNEL_LOADADDR) LOADER_DATA="$@" compile loader.bin
-\tmv "$@.bin" "$@"
-\trm -rf $@.src
-endef
-
-define Build/loader-kernel
-\t$(call Build/loader-common)
-endef
-
-define Build/relocate-kernel
-''',
-)
 
 # 1. Image recipe. Match the upstream F9K1109v1 safety limit (7224 KiB) inside the 0x7a0000 physical firmware partition.
 replace_once(
@@ -189,21 +126,8 @@ replace_once(
 
 PY
 
-echo "=== LEDE 17.01.5 lzma-loader sanity ==="
-grep -nE '^(PLATFORM|loader-compile:)|PLATFORM=' target/linux/ramips/image/lzma-loader/Makefile || true
-python3 - <<'PY_LZMA_SANITY'
-from pathlib import Path
-p = Path('target/linux/ramips/image/lzma-loader/Makefile')
-s = p.read_text()
-if 'PLATFORM="ralink"' not in s:
-    raise SystemExit('LEDE lzma-loader lost its stock PLATFORM="ralink" inner-build setting')
-if 'PLATFORM="$(PLATFORM)"' in s:
-    raise SystemExit('Unexpected later-OpenWrt PLATFORM passthrough is present; this caused the previous empty-platform loader failure')
-print('lzma-loader platform sanity: PASS (stock LEDE hardcoded ralink)')
-PY_LZMA_SANITY
-echo "Using stock LEDE 17.01.5 lzma-loader inner PLATFORM=ralink path; no outer PLATFORM override"
 
-git diff --   target/linux/ramips/dts/F9K1103.dts   target/linux/ramips/image/Makefile   target/linux/ramips/image/rt3883.mk   target/linux/ramips/base-files/lib/ramips.sh   target/linux/ramips/base-files/etc/board.d/01_leds   target/linux/ramips/base-files/etc/board.d/02_network   target/linux/ramips/base-files/lib/upgrade/platform.sh   > "$GITHUB_WORKSPACE/F9K1103-LEDE-17.01.5.patch"
+git diff --   target/linux/ramips/dts/F9K1103.dts   target/linux/ramips/image/rt3883.mk   target/linux/ramips/base-files/lib/ramips.sh   target/linux/ramips/base-files/etc/board.d/01_leds   target/linux/ramips/base-files/etc/board.d/02_network   target/linux/ramips/base-files/lib/upgrade/platform.sh   > "$GITHUB_WORKSPACE/F9K1103-LEDE-17.01.5.patch"
 
 ./scripts/feeds update -a
 ./scripts/feeds install -a
@@ -218,8 +142,8 @@ CONFIG_PACKAGE_luci=y
 CFG
 
 make defconfig
-make -j2 download
-make -j2 V=s
+make -j$(nproc) download
+make -j$(nproc) V=s
 
 cp -av bin/targets/ramips/rt3883/*f9k1103* "$OUT/" || true
 cp -av "$GITHUB_WORKSPACE/F9K1103-LEDE-17.01.5.patch" "$OUT/"
@@ -233,7 +157,7 @@ Target: ramips/rt3883
 DTS: F9K1103
 uImage name: N750F9K1103VB
 Firmware partition: 0x50000 + 0x7a0000
-Status: PORT-WIP / direct-LZMA build candidate / NOT hardware-runtime-verified
+Status: PORT-WIP / clean direct-LZMA build candidate / NOT hardware-runtime-verified
 EOF
 
 python3 - "$OUT" <<'PY'
