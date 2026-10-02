@@ -238,8 +238,8 @@ jobs:
           with open(O/'belkin_vs_wr1200_runtime_primitives.csv','w',newline='') as f:
               w=csv.writer(f);w.writerow(['path','belkin','wr1200'])
               for x in items:w.writerow([x,(B/x).exists(),(W/x).exists()])
-          # firmware budget against F9K1109 OpenWrt image-size recipe (7808 KiB)
-          cap=7808*1024
+          # firmware budget against exact OpenWrt 19.07 F9K1109 image-size recipe (7224 KiB)
+          cap=7224*1024
           current=3866905
           wrimg=7930011
           with open(O/'belkin_flash_budget.txt','w') as f:
