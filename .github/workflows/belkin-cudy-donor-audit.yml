@@ -1,0 +1,352 @@
+name: Belkin Cudy donor firmware acquisition and audit
+
+on:
+  push:
+    branches:
+      - cudy-donor-audit
+    paths:
+      - ".github/workflows/belkin-cudy-donor-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Install analysis tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq squashfs-tools u-boot-tools binutils-mipsel-linux-gnu file unzip jq python3 >/dev/null
+
+      - name: Download exact firmware corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p corpus reports roots selected-ui
+          cd corpus
+
+          get() {
+            local url="$1" out="$2"
+            echo "GET $out"
+            curl -L --fail --retry 4 --retry-delay 2 --connect-timeout 20 -o "$out" "$url"
+          }
+
+          # Belkin hardware/runtime truth: first and last OpenWrt 19.07 releases.
+          get "https://downloads.openwrt.org/releases/19.07.0/targets/ramips/rt3883/openwrt-19.07.0-ramips-rt3883-belkin_f9k1109v1-squashfs-sysupgrade.bin" \
+              "openwrt-19.07.0-belkin_f9k1109v1-sysupgrade.bin"
+          echo "b5bf1e194274cd4401969dac145ccfbc90f7b55a9a109253e9a5a5740941118c  openwrt-19.07.0-belkin_f9k1109v1-sysupgrade.bin" | sha256sum -c -
+
+          get "https://downloads.openwrt.org/releases/19.07.10/targets/ramips/rt3883/openwrt-19.07.10-ramips-rt3883-belkin_f9k1109v1-squashfs-sysupgrade.bin" \
+              "openwrt-19.07.10-belkin_f9k1109v1-sysupgrade.bin"
+          echo "3996ee73ad9965a1f0d4451913ca081e1bfbfc2c1049bd4751d56927cff41ea5  openwrt-19.07.10-belkin_f9k1109v1-sysupgrade.bin" | sha256sum -c -
+
+          # Cudy WR1000 OpenWrt reference for the 8/64 MT7628 class.
+          get "https://downloads.openwrt.org/releases/19.07.10/targets/ramips/mt76x8/openwrt-19.07.10-ramips-mt76x8-cudy_wr1000-squashfs-factory.bin" \
+              "openwrt-19.07.10-cudy_wr1000-factory.bin"
+          echo "18434c65cd3084c1c12c67bae39d26064e2dfe95bb2fdf1b85fa07db8e0c6451  openwrt-19.07.10-cudy_wr1000-factory.bin" | sha256sum -c -
+
+          # Cudy WR1200 V2/R26: small-flash Cudy userspace evolution.
+          get "https://www.cudy.com/cdn/shop/files/WR1200V2-R26-1.17.4-20240206-085058-flash.zip" \
+              "WR1200V2-R26-1.17.4-20240206-085058-flash.zip"
+          get "https://www.cudy.com/cdn/shop/files/WR1200V2-R26-2.1.1-20240418-092852-flash.zip" \
+              "WR1200V2-R26-2.1.1-20240418-092852-flash.zip"
+          get "https://www.cudy.com/cdn/shop/files/WR1200V2-R26-2.2.8-20241015-160718-flash.zip" \
+              "WR1200V2-R26-2.2.8-20241015-160718-flash.zip"
+          get "https://www.cudy.com/cdn/shop/files/WR1200V2-R26-2.4.12-20250703-144919-flash.zip" \
+              "WR1200V2-R26-2.4.12-20250703-144919-flash.zip"
+          get "https://www.cudy.com/cdn/shop/files/WR1200V2-R26-2.4.23-20251224-145945-flash.zip" \
+              "WR1200V2-R26-2.4.23-20251224-145945-flash.zip"
+
+          # Gigabit / USB Cudy lineage references.
+          get "https://www.cudy.com/cdn/shop/files/WR1300-R10-1.13.6-20220314-112409-flash_1.zip" \
+              "WR1300-R10-1.13.6-20220314-112409-flash_1.zip"
+          get "https://www.cudy.com/cdn/shop/files/WR2100-R11-1.14.25-20220730-212246-flash.zip" \
+              "WR2100-R11-1.14.25-20220730-212246-flash.zip"
+
+          # Existing OpenCudy reference firmware, fetched from the exact first-party payload.
+          get "https://d1jvyy13vm72kv.cloudfront.net/device/upgrade/upgrade_LT500V2-R25-2.4.16-20250804-150319-flash_20729.bin" \
+              "LT500V2-R25-2.4.16-20250804-150319-flash.bin"
+          echo "57aed945a9f485d178d73a844e420fc2b441e60821e243d3d19d07dd4a3143d6  LT500V2-R25-2.4.16-20250804-150319-flash.bin" | sha256sum -c -
+
+          # Exact WR1000 OEM name is first-party/OpenWrt-evidence-derived.
+          # Query Wayback for that literal name only; do not guess versions.
+          python3 - <<'PY'
+          import json, urllib.request, urllib.parse, pathlib
+          names = [
+            "WR1000_EU_92.122.2.4987.201806261618.bin",
+            "WR1000_US_92.122.2.4987.201806261609.bin",
+          ]
+          out = pathlib.Path("../reports/fu_wr1000_wayback_status.tsv")
+          rows=["name\tstatus\tarchive_url"]
+          for name in names:
+              q = "https://web.archive.org/cdx/search/cdx?url=*cudytech.com/*"+urllib.parse.quote(name)+"&output=json&filter=statuscode:200&collapse=digest"
+              try:
+                  data=json.load(urllib.request.urlopen(q, timeout=30))
+              except Exception as e:
+                  rows.append(f"{name}\tCDX_ERROR:{type(e).__name__}\t")
+                  continue
+              if len(data)<2:
+                  rows.append(f"{name}\tNOT_FOUND\t")
+                  continue
+              hdr=data[0]; rec=dict(zip(hdr,data[-1]))
+              u=f"https://web.archive.org/web/{rec['timestamp']}id_/{rec['original']}"
+              try:
+                  b=urllib.request.urlopen(u, timeout=60).read()
+                  pathlib.Path(name).write_bytes(b)
+                  rows.append(f"{name}\tRECOVERED:{len(b)}\t{u}")
+              except Exception as e:
+                  rows.append(f"{name}\tARCHIVE_FETCH_ERROR:{type(e).__name__}\t{u}")
+          out.write_text("\n".join(rows)+"\n")
+          PY
+
+          sha256sum * > ../reports/fu_corpus_sha256.txt
+          ls -l --time-style=long-iso > ../reports/fu_corpus_listing.txt
+
+      - name: Normalize archives and extract SquashFS root filesystems
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import zipfile,hashlib,subprocess,os,csv,struct,shutil
+          corpus=Path("corpus"); norm=Path("normalized"); roots=Path("roots")
+          norm.mkdir(exist_ok=True); roots.mkdir(exist_ok=True)
+          rows=[]
+
+          def sha(p):
+              h=hashlib.sha256()
+              with open(p,'rb') as f:
+                  for b in iter(lambda:f.read(1024*1024),b''): h.update(b)
+              return h.hexdigest()
+
+          bins=[]
+          for p in sorted(corpus.iterdir()):
+              if p.suffix.lower()==".zip":
+                  d=norm/(p.stem+"_zip")
+                  d.mkdir(exist_ok=True)
+                  try:
+                      with zipfile.ZipFile(p) as z:
+                          z.extractall(d)
+                      for q in d.rglob("*"):
+                          if q.is_file() and q.suffix.lower() in (".bin",".img"):
+                              bins.append((p.name,q))
+                  except Exception as e:
+                      rows.append([p.name,"ZIP_ERROR","","","",type(e).__name__])
+              elif p.is_file() and p.suffix.lower() in (".bin",".img"):
+                  bins.append((p.name,p))
+
+          for source,b in bins:
+              data=b.read_bytes()
+              # SquashFS LE magic bytes are hsqs.
+              offs=[]
+              start=0
+              while True:
+                  i=data.find(b"hsqs",start)
+                  if i<0: break
+                  offs.append(i); start=i+1
+              # use first SquashFS candidate that unsquashfs accepts
+              status="NO_SQUASHFS"; chosen=""
+              for off in offs:
+                  sq=norm/(b.name+f".off_{off}.squashfs")
+                  sq.write_bytes(data[off:])
+                  root=roots/(b.stem+f"_off_{off}")
+                  if root.exists(): shutil.rmtree(root)
+                  r=subprocess.run(["unsquashfs","-no-exit-code","-d",str(root),str(sq)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+                  if r.returncode in (0,1) and root.exists() and any(root.iterdir()):
+                      status="EXTRACTED"; chosen=str(root); break
+                  sq.unlink(missing_ok=True)
+                  if root.exists(): shutil.rmtree(root)
+              uim=data.find(bytes.fromhex("27051956"))
+              rows.append([source,str(b.relative_to(Path('.'))),sha(b),len(data),",".join(map(str,offs)),status,chosen,uim])
+
+          with open("reports/fu_image_extraction_manifest.csv","w",newline="") as f:
+              w=csv.writer(f); w.writerow(["source","inner_file","sha256","bytes","squashfs_offsets","rootfs_status","rootfs_dir","uimage_offset"]); w.writerows(rows)
+          PY
+
+      - name: Deep static inventory and cross-donor comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,csv,json,os,re,subprocess,itertools
+          roots=Path("roots"); rep=Path("reports"); uiout=Path("selected-ui")
+          uiout.mkdir(exist_ok=True)
+          records={}
+          overview=[]
+
+          def sh(p):
+              h=hashlib.sha256()
+              with open(p,'rb') as f:
+                  for b in iter(lambda:f.read(1024*1024),b''): h.update(b)
+              return h.hexdigest()
+
+          def read(p,limit=200000):
+              try:return p.read_text(errors='replace')[:limit]
+              except:return ""
+
+          for r in sorted(roots.iterdir()):
+              if not r.is_dir(): continue
+              files=[p for p in r.rglob("*") if p.is_file()]
+              rel={str(p.relative_to(r)):p for p in files}
+              hashes={k:sh(v) for k,v in rel.items()}
+              records[r.name]=(set(rel),hashes)
+              total=sum(p.stat().st_size for p in files)
+
+              release=" | ".join(filter(None,[
+                  read(r/"etc/openwrt_release",4000).replace("\n","; "),
+                  read(r/"etc/cudy_release",4000).replace("\n","; "),
+                  read(r/"etc/banner",4000).replace("\n","; ")
+              ]))
+              luci=[x for x in rel if x.startswith("usr/lib/lua/luci/")]
+              www=[x for x in rel if x.startswith("www/")]
+              init=[x for x in rel if x.startswith("etc/init.d/")]
+              cudy_hits=[x for x in rel if re.search(r'(cmagent|cmsd|hcsh|bdinfo|mcore|gcom|cudy|description\.lua|gui\.lua|forbidden\.lua)',x,re.I)]
+              overview.append([r.name,len(files),total,len(luci),len(www),len(init),len(cudy_hits),release[:1200]])
+
+              # Save concise path inventories.
+              (rep/(r.name+"__luci_paths.txt")).write_text("\n".join(sorted(luci))+"\n")
+              (rep/(r.name+"__init_paths.txt")).write_text("\n".join(sorted(init))+"\n")
+              (rep/(r.name+"__cudy_hits.txt")).write_text("\n".join(sorted(cudy_hits))+"\n")
+
+              # Export UI/controller/model/view + web assets as tar for manual diff.
+              selected=[]
+              for k,p in rel.items():
+                  if k.startswith("usr/lib/lua/luci/") or k.startswith("www/") or k in (
+                      "etc/openwrt_release","etc/openwrt_version","etc/config/network","etc/config/wireless",
+                      "etc/config/firewall","etc/config/system"
+                  ):
+                      selected.append(k)
+              # file manifest rather than copy huge tree
+              with open(rep/(r.name+"__selected_sha256.tsv"),"w") as f:
+                  for k in sorted(selected): f.write(f"{hashes[k]}\t{k}\n")
+
+              # focused strings / text hits, not secrets.
+              needles=("description.lua","gui.lua","forbidden.lua","cmagent","cmsd","hcshd","bdinfo dbg","bdinfo factory",
+                       "wisp","wireless","vpn","sandbox","terminal","package","usb","samba","print","qos","port mirror")
+              hits=[]
+              for k,p in rel.items():
+                  if p.stat().st_size>2_000_000: continue
+                  t=read(p,300000)
+                  if not t: continue
+                  low=t.lower()
+                  found=[n for n in needles if n.lower() in low]
+                  if found: hits.append((k,",".join(found)))
+              with open(rep/(r.name+"__focused_content_hits.tsv"),"w") as f:
+                  for k,h in hits: f.write(f"{k}\t{h}\n")
+
+          with open(rep/"fu_rootfs_overview.csv","w",newline="") as f:
+              w=csv.writer(f); w.writerow(["rootfs","files","total_file_bytes","luci_files","www_files","init_files","cudy_path_hits","release"]);w.writerows(overview)
+
+          sims=[]
+          names=sorted(records)
+          for a,b in itertools.combinations(names,2):
+              pa,ha=records[a]; pb,hb=records[b]
+              inter=pa&pb; union=pa|pb
+              same=sum(1 for k in inter if ha[k]==hb[k])
+              lucia={k for k in pa if k.startswith("usr/lib/lua/luci/") or k.startswith("www/")}
+              lucib={k for k in pb if k.startswith("usr/lib/lua/luci/") or k.startswith("www/")}
+              li=lucia&lucib; lu=lucia|lucib
+              lsame=sum(1 for k in li if ha[k]==hb[k])
+              sims.append([
+                a,b,len(pa),len(pb),len(inter),len(union),
+                round(len(inter)/len(union),6) if union else 0,
+                same,round(same/max(1,len(inter)),6),
+                len(li),len(lu),round(len(li)/max(1,len(lu)),6),
+                lsame,round(lsame/max(1,len(li)),6)
+              ])
+          with open(rep/"fu_cross_donor_similarity.csv","w",newline="") as f:
+              w=csv.writer(f);w.writerow([
+                "a","b","files_a","files_b","common_paths","union_paths","path_jaccard",
+                "byte_identical_common","byte_identical_ratio_common",
+                "ui_common_paths","ui_union_paths","ui_path_jaccard",
+                "ui_byte_identical","ui_byte_identical_ratio"
+              ]);w.writerows(sims)
+
+          # Identify best LT500D UI donors automatically.
+          targets=[n for n in names if "LT500" in n.upper()]
+          with open(rep/"fu_lt500_ui_similarity_rank.txt","w") as f:
+              for target in targets:
+                  scored=[]
+                  pt,ht=records[target]
+                  uit={k for k in pt if k.startswith("usr/lib/lua/luci/") or k.startswith("www/")}
+                  for n in names:
+                      if n==target: continue
+                      p,h=records[n]
+                      ui={k for k in p if k.startswith("usr/lib/lua/luci/") or k.startswith("www/")}
+                      inter=uit&ui; union=uit|ui
+                      same=sum(1 for k in inter if ht[k]==h[k])
+                      scored.append((len(inter)/max(1,len(union)),same/max(1,len(inter)),len(inter),n))
+                  f.write(f"TARGET={target}\n")
+                  for s in sorted(scored,reverse=True):
+                      f.write(f"ui_path_jaccard={s[0]:.6f} ui_byte_same={s[1]:.6f} common={s[2]} donor={s[3]}\n")
+          PY
+
+          # File/ELF observations for representative binaries.
+          {
+            for r in roots/*; do
+              [ -d "$r" ] || continue
+              echo "===== $(basename "$r") ====="
+              for p in bin/busybox usr/sbin/uhttpd usr/bin/lua usr/sbin/cmagent usr/sbin/hcshd; do
+                [ -f "$r/$p" ] && { echo "-- $p"; file "$r/$p"; mipsel-linux-gnu-readelf -h "$r/$p" 2>/dev/null | grep -E 'Class:|Data:|Machine:|Flags:' || true; }
+              done
+            done
+          } > reports/fu_elf_architecture_summary.txt
+
+          # Root filesystem feature/service matrix.
+          python3 - <<'PY'
+          from pathlib import Path
+          import csv
+          roots=Path("roots")
+          features=[
+            ("luci","usr/lib/lua/luci"),
+            ("description_lua","usr/lib/lua/luci/description.lua"),
+            ("gui_lua","usr/lib/lua/luci/gui.lua"),
+            ("forbidden_lua","usr/lib/lua/luci/forbidden.lua"),
+            ("cmagent","usr/sbin/cmagent"),
+            ("cmsd","usr/sbin/cmsd"),
+            ("hcshd","usr/sbin/hcshd"),
+            ("bdinfo","usr/bin/bdinfo"),
+            ("dropbear_init","etc/init.d/dropbear"),
+            ("telnet_init","etc/init.d/telnet"),
+            ("mosquitto_init","etc/init.d/mosquitto"),
+            ("usb_modules","lib/modules"),
+            ("samba_hint","etc/config/samba"),
+            ("firewall","etc/config/firewall"),
+            ("wireless","etc/config/wireless"),
+          ]
+          with open("reports/fu_feature_matrix.csv","w",newline="") as f:
+              w=csv.writer(f);w.writerow(["rootfs"]+[x[0] for x in features])
+              for r in sorted(roots.iterdir()):
+                  if r.is_dir(): w.writerow([r.name]+[("YES" if (r/p).exists() else "NO") for _,p in features])
+          PY
+
+      - name: Package exact acquisition + reports
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p deliverable
+          cp -a corpus deliverable/
+          cp -a reports deliverable/
+          # Rootfs trees are intentionally not uploaded in full; manifests are enough for comparison.
+          # Preserve normalized inner firmware filenames and extracted SquashFS images.
+          cp -a normalized deliverable/
+          sha256sum deliverable/corpus/* > deliverable/reports/FINAL-CORPUS-SHA256.txt
+          tar -C deliverable -czf belkin-cudy-donor-firmware-corpus-and-audit.tar.gz .
+          sha256sum belkin-cudy-donor-firmware-corpus-and-audit.tar.gz > belkin-cudy-donor-firmware-corpus-and-audit.tar.gz.sha256
+          unzip -t corpus/*.zip >/dev/null 2>&1 || true
+          echo "BELKIN_CUDY_DONOR_AUDIT=PASS" > audit-result.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: belkin-cudy-donor-firmware-corpus-and-audit
+          path: |
+            belkin-cudy-donor-firmware-corpus-and-audit.tar.gz
+            belkin-cudy-donor-firmware-corpus-and-audit.tar.gz.sha256
+            audit-result.txt
+          compression-level: 0
