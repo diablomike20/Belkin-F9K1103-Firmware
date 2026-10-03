@@ -1,0 +1,231 @@
+name: Audit F9K1103 LEDE 17.01.5 SUCCESS artifact
+
+on:
+  push:
+    branches:
+      - lede-17.01.5-postbuild-audit
+    paths:
+      - '.github/workflows/audit-f9k1103-lede-17.01.5-success.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - name: Install audit tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq squashfs-tools u-boot-tools device-tree-compiler file xz-utils unzip python3 curl >/dev/null
+
+      - name: Download exact SUCCESS artifact and hardware reference
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p work/artifact work/ref out
+
+          curl -L --fail --retry 3 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -o work/lede-artifact.zip \
+            "https://api.github.com/repos/diablomike20/Belkin-F9K1103-Firmware/actions/artifacts/11210566323/zip"
+          unzip -q work/lede-artifact.zip -d work/artifact
+
+          LEDE=work/artifact/lede-ramips-rt3883-f9k1103-squashfs-sysupgrade.bin
+          test -f "$LEDE"
+          echo "b78106c7509a31f886682e9d071f6d41fdaee7bd6f209add4a4aa6b61a9f0622  $LEDE" | sha256sum -c -
+
+          curl -L --fail --retry 3 -o work/ref/f9k1109-19.07.0.bin \
+            "https://downloads.openwrt.org/releases/19.07.0/targets/ramips/rt3883/openwrt-19.07.0-ramips-rt3883-belkin_f9k1109v1-squashfs-sysupgrade.bin"
+          echo "b5bf1e194274cd4401969dac145ccfbc90f7b55a9a109253e9a5a5740941118c  work/ref/f9k1109-19.07.0.bin" | sha256sum -c -
+
+      - name: Parse image format and extract rootfs + embedded DTB
+        run: |
+          set -euo pipefail
+          LEDE=work/artifact/lede-ramips-rt3883-f9k1103-squashfs-sysupgrade.bin
+          REF=work/ref/f9k1109-19.07.0.bin
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct,binascii,hashlib,csv
+          pairs=[
+            ("F9K1103_LEDE17",Path("work/artifact/lede-ramips-rt3883-f9k1103-squashfs-sysupgrade.bin")),
+            ("F9K1109_OWRT19070",Path("work/ref/f9k1109-19.07.0.bin")),
+          ]
+          rows=[]
+          for name,p in pairs:
+              b=p.read_bytes(); h=b[:64]
+              magic,hcrc,ts,size,load,entry,dcrc=struct.unpack('>7I',h[:28])
+              os_,arch,typ,comp=h[28:32]
+              uname=h[32:64].split(b'\0',1)[0].decode('ascii','replace')
+              hz=bytearray(h); hz[4:8]=b'\0'*4
+              rows.append([
+                name,len(b),hashlib.sha256(b).hexdigest(),f"0x{magic:08x}",uname,size,
+                f"0x{load:08x}",f"0x{entry:08x}",comp,
+                (binascii.crc32(hz)&0xffffffff)==hcrc,
+                (binascii.crc32(b[64:64+size])&0xffffffff)==dcrc,
+                b.find(b'hsqs')
+              ])
+          with open("out/image-format.csv","w",newline="") as f:
+              w=csv.writer(f);w.writerow(["image","bytes","sha256","magic","uimage_name","kernel_payload","load","entry","compression","header_crc_ok","payload_crc_ok","squashfs_offset"]);w.writerows(rows)
+
+          # Slice LEDE kernel payload + rootfs
+          b=pairs[0][1].read_bytes(); size=struct.unpack('>I',b[12:16])[0]; sq=b.find(b'hsqs')
+          Path("work/lede-kernel.lzma").write_bytes(b[64:64+size])
+          Path("work/lede-rootfs.squashfs").write_bytes(b[sq:])
+          PY
+
+          xz --format=lzma -dc work/lede-kernel.lzma > work/lede-kernel.raw
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct
+          b=Path("work/lede-kernel.raw").read_bytes()
+          off=b.find(bytes.fromhex("d00dfeed"))
+          assert off>=0, "embedded FDT missing"
+          total=struct.unpack_from(">I",b,off+4)[0]
+          Path("work/F9K1103-built.dtb").write_bytes(b[off:off+total])
+          print(f"fdt_offset={off} fdt_size={total}")
+          PY
+          dtc -I dtb -O dts -o out/F9K1103-built.dts work/F9K1103-built.dtb 2>out/dtc-warnings.txt || {
+            cat out/dtc-warnings.txt
+            exit 1
+          }
+
+          mkdir -p work/rootfs
+          unsquashfs -no-exit-code -d work/rootfs work/lede-rootfs.squashfs > out/unsquashfs.log 2>&1
+          test -x work/rootfs/bin/busybox
+          du -sb work/rootfs > out/rootfs-size.txt
+          find work/rootfs -xdev -printf '%P\t%y\t%m\t%s\n' | sort > out/rootfs-file-inventory.tsv
+
+      - name: Verify exact board contracts in generated rootfs
+        run: |
+          set -euo pipefail
+          R=work/rootfs
+          {
+            echo '=== RELEASE ==='
+            cat "$R/etc/openwrt_release"
+            echo
+            echo '=== BOARD DETECTION ==='
+            grep -n -A4 -B2 'Belkin F9K1103' "$R/lib/ramips.sh"
+            echo
+            echo '=== NETWORK ==='
+            grep -n -A18 -B4 'f9k1103)' "$R/etc/board.d/02_network"
+            echo
+            echo '=== SYSUPGRADE ==='
+            grep -n -A5 -B5 'f9k1103' "$R/lib/upgrade/platform.sh"
+          } > out/rootfs-board-contract.txt
+
+          grep -q 'name="f9k1103"' "$R/lib/ramips.sh"
+          grep -q '"0:lan" "1:lan" "2:lan" "3:lan" "4:wan" "5@eth0"' "$R/etc/board.d/02_network"
+          grep -q 'mtd_get_mac_ascii uboot-env HW_WAN_MAC' "$R/etc/board.d/02_network"
+          grep -q 'mtd_get_mac_ascii uboot-env HW_LAN_MAC' "$R/etc/board.d/02_network"
+          grep -q 'f9k1103' "$R/lib/upgrade/platform.sh"
+
+          # Required platform and wireless packages/files
+          for p in \
+            lib/modules/4.4.140/rt2800soc.ko \
+            lib/modules/4.4.140/rt2800pci.ko \
+            lib/firmware/rt2860.bin; do
+              test -e "$R/$p" || { echo "MISSING_REQUIRED=$p" | tee -a out/required-files.txt; exit 1; }
+              echo "PRESENT=$p" >> out/required-files.txt
+          done
+
+          # Preserve direct-LZMA and size invariants.
+          python3 - <<'PY'
+          import csv
+          rows=list(csv.DictReader(open('out/image-format.csv')))
+          a,b=rows
+          assert a['magic']=='0x27051956'
+          assert a['uimage_name']=='N750F9K1103VB'
+          assert a['compression']=='3'
+          assert a['load']=='0x80000000' and a['entry']=='0x80000000'
+          assert a['header_crc_ok']=='True' and a['payload_crc_ok']=='True'
+          assert int(a['bytes']) <= 7224*1024
+          # Hardware-proven reference must agree on boot-wrapper semantics.
+          for k in ('magic','uimage_name','compression','load','entry'):
+              assert a[k]==b[k], (k,a[k],b[k])
+          PY
+
+      - name: Compare built DTB against proven F9K1109 hardware topology
+        run: |
+          set -euo pipefail
+          D=out/F9K1103-built.dts
+
+          # Flash geometry
+          grep -q 'reg = <0x50000 0x7a0000>' "$D"
+          grep -q 'reg = <0x7f0000 0x10000>' "$D"
+          # RTL8367 RGMII topology
+          grep -q 'compatible = "realtek,rtl8367b"' "$D"
+          grep -q 'realtek,extif1 = <0x1 0x0 0x1 0x1 0x1 0x1 0x1 0x1 0x2>' "$D"
+          grep -q 'mediatek,fixed-link = <0x3e8 0x1 0x1 0x1>' "$D"
+          grep -q 'phy-mode = "rgmii"' "$D"
+          # EEPROM offsets
+          grep -q 'ralink,mtd-eeprom = <.*0x8000>' "$D"
+          grep -q 'ralink,mtd-eeprom = <.*0x0>' "$D"
+          # USB on
+          grep -A20 'ehci@101c0000' "$D" | grep -q 'status = "okay"'
+          grep -A20 'ohci@101c1000' "$D" | grep -q 'status = "okay"'
+
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('out/F9K1103-built.dts').read_text()
+          facts={
+            'model_f9k1103':'Belkin F9K1103 Version 1.0' in s,
+            'flash_firmware_0x50000_0x7a0000':'reg = <0x50000 0x7a0000>' in s,
+            'user_cfg_0x7f0000':'reg = <0x7f0000 0x10000>' in s,
+            'rtl8367b':'compatible = "realtek,rtl8367b"' in s,
+            'rgmii_gigabit':'mediatek,fixed-link = <0x3e8 0x1 0x1 0x1>' in s and 'phy-mode = "rgmii"' in s,
+            'wifi_factory_0x8000':'0x8000' in s and 'ralink,mtd-eeprom' in s,
+            'usb_ehci_ohci':s.count('status = "okay";') >= 5,
+          }
+          Path('out/dtb-facts.txt').write_text('\n'.join(f'{k}={str(v).upper()}' for k,v in facts.items())+'\n')
+          assert all(facts.values())
+          PY
+
+      - name: Produce risk register and audit result
+        run: |
+          set -euo pipefail
+          cat > out/RISK-REGISTER.md <<'EOF'
+          # F9K1103 LEDE 17.01.5 post-build static risk register
+
+          ## STATIC PASS
+          - Direct LZMA legacy uImage wrapper matches the physically-used F9K1109/OpenWrt 19.07 reference semantics.
+          - uImage name N750F9K1103VB matches the Belkin family reference.
+          - Header and payload CRC pass.
+          - 7224 KiB upstream safety limit is honored.
+          - Physical firmware partition geometry is 0x50000 + 0x7a0000.
+          - RTL8367B/R-VB SMI and RGMII topology matches the proven F9K1109 family topology.
+          - Generated rootfs contains F9K1103 board detection, switch mapping, U-Boot environment MAC extraction, and uImage sysupgrade acceptance.
+          - Wi-Fi calibration references are factory+0 and factory+0x8000.
+          - USB EHCI/OHCI are enabled.
+
+          ## STILL TARGET-UNKNOWN
+          - Actual F9K1103 boot with this exact LEDE image.
+          - Exact LED polarity/function fidelity.
+          - Reset/WPS GPIO runtime behavior.
+          - Exact PCI/RT309x radio enumeration on the physical F9K1103.
+          - Ethernet port numbering/LED semantics on the physical board, despite family evidence.
+          - U-Boot acceptance when flashed through the user's actual installation/recovery method.
+          - Persistence/overlay behavior and recovery path after first boot.
+
+          ## DECISION
+          STATIC_POSTBUILD_AUDIT=PASS
+          PHYSICAL_BOOT=UNKNOWN
+          DO_NOT_CALL_FINAL_FIRMWARE_BEFORE_TARGET_TEST
+          EOF
+
+          sha256sum out/* > out/SHA256SUMS.txt
+          echo 'F9K1103_LEDE_17_POSTBUILD_STATIC_AUDIT=PASS' > out/RESULT.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: F9K1103-v1-LEDE-17.01.5-POSTBUILD-AUDIT
+          path: out/
+          compression-level: 6
