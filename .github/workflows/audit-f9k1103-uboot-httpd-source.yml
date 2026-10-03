@@ -1,0 +1,57 @@
+name: Locate exact F9K1103 U-Boot HTTPD implementation
+
+on:
+  push:
+    branches:
+      - f9k1103-gpl-audit
+    paths:
+      - '.github/workflows/audit-f9k1103-uboot-httpd-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  map:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ripgrep file >/dev/null
+          mkdir -p work/src out/files
+          curl -L --fail --retry 4 -o work/gpl.tar.gz 'https://s3.belkin.com/support/assets/belkin/gpl/F9K1103_v1.10.23.tar.gz'
+          echo "8e65bf160929df49fe6b88544709666d0071e7fed56cca3fff933bc7ce60799d  work/gpl.tar.gz" | sha256sum -c -
+          tar -xzf work/gpl.tar.gz -C work/src
+          ROOT=work/src/F9K1103_v1.10.23
+          U="$ROOT/platforms/rt3883/uboot"
+
+          find "$U" -type f \( -iname '*http*' -o -iname '*web*' -o -iname '*upgrade*' -o -iname '*net*' -o -iname '*gpio*' -o -iname '*board*' \) -printf '%P\n' | sort > out/CANDIDATE-FILENAMES.txt
+
+          rg -l -i --hidden 'httpd|http server|web server|tcp.*80|listen.*80|multipart|boundary=|Content-Length|Content-Type|GET /|POST /|upgrade.*flash|flash.*upgrade' "$U" | sort > out/HTTPD-SOURCE-FILES.txt || true
+          rg -n -i -C 20 --hidden 'httpd|http server|web server|tcp.*80|listen.*80|multipart|boundary=|Content-Length|Content-Type|GET /|POST /|upgrade.*flash|flash.*upgrade' "$U" > out/HTTPD-SOURCE-HITS.txt || true
+
+          rg -n -i -C 20 --hidden 'RESET_BUTTON_GPIO_NO|BUTTON_PRESSED|gpio.*reset|reset.*gpio|recovery|failsafe|httpd.*start|start.*httpd|NetLoop.*HTTP|HTTP.*NetLoop|bootdelay|abortboot' "$U" "$ROOT/project/belkin/WG9117A23-AK/F9K1103v1_DB-N750" > out/BOOT-ENTRY-HITS.txt || true
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          root=Path('work/src/F9K1103_v1.10.23')
+          out=Path('out/files')
+          lines=Path('out/HTTPD-SOURCE-FILES.txt').read_text(errors='replace').splitlines()
+          for raw in lines:
+              p=Path(raw)
+              try: rel=p.relative_to(root)
+              except: continue
+              if p.is_file() and p.stat().st_size<2_000_000:
+                  d=out/rel; d.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(p,d)
+          PY
+          find out/files -type f -print0 | sort -z | xargs -0 -r sha256sum > out/COPIED-SHA256.txt
+          sha256sum out/*.txt > out/REPORT-SHA256.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: F9K1103-UBOOT-HTTPD-SOURCE-MAP
+          path: out/
+          compression-level: 6
