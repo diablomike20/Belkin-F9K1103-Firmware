@@ -98,8 +98,13 @@ jobs:
             exit 1
           }
 
-          mkdir -p work/rootfs
-          unsquashfs -no-exit-code -d work/rootfs work/lede-rootfs.squashfs > out/unsquashfs.log 2>&1
+          rm -rf work/rootfs
+          set +e
+          unsquashfs -d work/rootfs work/lede-rootfs.squashfs > out/unsquashfs.log 2>&1
+          URC=$?
+          set -e
+          echo "unsquashfs_rc=$URC" >> out/unsquashfs.log
+          test -d work/rootfs
           test -x work/rootfs/bin/busybox
           du -sb work/rootfs > out/rootfs-size.txt
           find work/rootfs -xdev -printf '%P\t%y\t%m\t%s\n' | sort > out/rootfs-file-inventory.tsv
@@ -225,6 +230,7 @@ jobs:
           echo 'F9K1103_LEDE_17_POSTBUILD_STATIC_AUDIT=PASS' > out/RESULT.txt
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: F9K1103-v1-LEDE-17.01.5-POSTBUILD-AUDIT
           path: out/
