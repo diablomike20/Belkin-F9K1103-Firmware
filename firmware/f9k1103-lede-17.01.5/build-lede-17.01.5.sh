@@ -35,25 +35,13 @@ sed -i 's#PKG_SOURCE_URL=$(LEDE_GIT)/keyring.git#PKG_SOURCE_URL:=https://github.
 
 cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/F9K1103.dts" target/linux/ramips/dts/
 
-# Failure evidence: Router-Emulator job 107686586668 reached the image stage
-# but lzma-loader invoked "cc -o .o" with no input files. Keep the stock
-# LEDE 17.01.5 inner PLATFORM=ralink contract instead of the later PLATFORM
-# passthrough that produced the empty object/source names.
-# Guard the LEDE 17.01.5 loader contract. The outer loader Makefile must pass
-# PLATFORM="ralink" to src/Makefile; overriding PLATFORM at the outer level
-# makes the inner OBJECTS list resolve to board-.o and eventually "cc -o .o".
-grep -Fq 'PLATFORM="ralink"' target/linux/ramips/image/lzma-loader/Makefile || {
-  echo "ERROR: LEDE lzma-loader no longer forces PLATFORM=ralink" >&2
-  exit 1
-}
-if grep -Eq '^[[:space:]]*PLATFORM[[:space:]]*:=' target/linux/ramips/image/lzma-loader/Makefile; then
-  echo "ERROR: outer lzma-loader must not override PLATFORM" >&2
-  exit 1
-fi
-# LEDE 17.01.5's lzma-loader wrapper already passes PLATFORM="ralink"
-# to its inner loader build. Do not pass/override the later OpenWrt PLATFORM
-# variable at the outer make level: on this old tree it collides with legacy
-# build-system state and can leave TARGET_CROSS empty (observed as "cc -o .o").
+# Boot-envelope decision:
+# The physical F9K1103 currently boots the F9K1109 v1 OpenWrt 19.07 image,
+# whose upstream recipe is direct LZMA (-d16) in a standard MIPS uImage:
+# name N750F9K1103VB, load/entry 0x80000000.  Do not backport the later
+# ramips self-relocating lzma-loader into LEDE 17.01.5 here; that introduced
+# a separate old-binutils high-VMA objcopy failure and is not required by the
+# proven Belkin 19.07 boot envelope.
 cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/010-glibc-change-work-around.patch" tools/m4/patches/010-glibc-change-work-around.patch
 # Backport OpenWrt's own post-17.01 host-glibc compatibility fixes.
 cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/010-m4-glibc-change-work-around.patch" tools/m4/patches/010-glibc-change-work-around.patch
@@ -71,27 +59,9 @@ def replace_once(path, old, new):
         raise SystemExit(f'anchor not found in {path}: {old!r}')
     p.write_text(s.replace(old,new,1))
 
-# 0. Backport the later ramips embedded LZMA loader image command.
-# LEDE 17.01.5 already contains target/linux/ramips/image/lzma-loader;
-# it only lacks the image-pipeline wrapper added later upstream.
-replace_once(
-    'target/linux/ramips/image/Makefile',
-    '''define Build/relocate-kernel
-''',
-    '''define Build/loader-common
-\trm -rf $@.src
-\t$(MAKE) -C lzma-loader PKG_BUILD_DIR="$@.src" TARGET_DIR="$(dir $@)" LOADER_NAME="$(notdir $@)" BOARD="$(BOARDNAME)" LZMA_TEXT_START=0x81800000 LOADADDR=$(KERNEL_LOADADDR) LOADER_DATA="$@" compile loader.bin
-\tmv "$@.bin" "$@"
-\trm -rf $@.src
-endef
-
-define Build/loader-kernel
-\t$(call Build/loader-common)
-endef
-
-define Build/relocate-kernel
-''',
-)
+# 0. Keep LEDE 17.01.5's image framework intact.
+# The F9K1103 recipe below uses the historically proven Belkin direct-LZMA
+# uImage path, so no later ramips lzma-loader pipeline is injected.
 
 # 1. Image recipe. 7808 KiB == 0x7a0000 firmware partition.
 replace_once(
@@ -104,11 +74,10 @@ define Device/f9k1103
   BLOCKSIZE := 64k
   IMAGE_SIZE := 7808k
   UIMAGE_NAME := N750F9K1103VB
-  # Belkin's stock U-Boot has known LZMA decompression issues on this
-  # F9K110x platform family. Embed the LZMA kernel in OpenWrt's tiny
-  # self-relocating loader and mark the outer uImage as uncompressed.
-  LOADER_TYPE := bin
-  KERNEL := kernel-bin | patch-dtb | lzma | loader-kernel | uImage none
+  # Match the proven F9K1109 v1 OpenWrt 19.07 boot envelope that is
+  # already known to boot on the physical F9K1103: direct LZMA (-d16) in
+  # a normal MIPS uImage, load/entry 0x80000000, name N750F9K1103VB.
+  KERNEL := kernel-bin | patch-dtb | lzma -d16 | uImage lzma
   DEVICE_TITLE := Belkin F9K1103 v1
   DEVICE_PACKAGES := kmod-usb-core kmod-usb-ohci kmod-usb2 swconfig
 endef
@@ -168,20 +137,6 @@ replace_once(
 
 PY
 
-echo "=== LEDE 17.01.5 lzma-loader sanity ==="
-grep -nE '^(PLATFORM|loader-compile:)|PLATFORM=' target/linux/ramips/image/lzma-loader/Makefile || true
-python3 - <<'PY_LZMA_SANITY'
-from pathlib import Path
-p = Path('target/linux/ramips/image/lzma-loader/Makefile')
-s = p.read_text()
-if 'PLATFORM="ralink"' not in s:
-    raise SystemExit('LEDE lzma-loader lost its stock PLATFORM="ralink" inner-build setting')
-if 'PLATFORM="$(PLATFORM)"' in s:
-    raise SystemExit('Unexpected later-OpenWrt PLATFORM passthrough is present; this caused the previous empty-platform loader failure')
-print('lzma-loader platform sanity: PASS (stock LEDE hardcoded ralink)')
-PY_LZMA_SANITY
-echo "Using stock LEDE 17.01.5 lzma-loader inner PLATFORM=ralink path; no outer PLATFORM override"
-
 git diff --   target/linux/ramips/dts/F9K1103.dts   target/linux/ramips/image/Makefile   target/linux/ramips/image/rt3883.mk   target/linux/ramips/base-files/lib/ramips.sh   target/linux/ramips/base-files/etc/board.d/01_leds   target/linux/ramips/base-files/etc/board.d/02_network   target/linux/ramips/base-files/lib/upgrade/platform.sh   > "$GITHUB_WORKSPACE/F9K1103-LEDE-17.01.5.patch"
 
 ./scripts/feeds update -a
@@ -211,6 +166,7 @@ Board: Belkin F9K1103 v1
 Target: ramips/rt3883
 DTS: F9K1103
 uImage name: N750F9K1103VB
+Kernel envelope: direct LZMA (-d16), uImage compression=lzma, load/entry=0x80000000
 Firmware partition: 0x50000 + 0x7a0000
 Status: PORT-WIP / build-verified / NOT hardware-runtime-verified
 EOF
@@ -241,7 +197,9 @@ for p in bins:
         hcrc==calc_h and
         dcrc==calc_d and
         name=='N750F9K1103VB' and
-        comp==0 and
+        comp==3 and
+        load==0x80000000 and
+        entry==0x80000000 and
         len(b)<=0x7a0000 and
         squash>=0
     )
@@ -252,7 +210,7 @@ for p in bins:
         f'uimage_magic=0x{magic:08x}',
         f'uimage_name={name}',
         f'uimage_payload_size={size}',
-        f'outer_compression={comp} (0=none)',
+        f'outer_compression={comp} (3=lzma expected)',
         f'load=0x{load:08x}',
         f'entry=0x{entry:08x}',
         f'header_crc_ok={hcrc==calc_h}',
