@@ -1,0 +1,158 @@
+name: Audit Belkin F9K1103 v1.10.23 GPL source
+
+on:
+  push:
+    branches:
+      - f9k1103-gpl-audit
+    paths:
+      - '.github/workflows/audit-f9k1103-gpl.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Install tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq file ripgrep tree python3 xz-utils >/dev/null
+
+      - name: Download exact Belkin GPL archive
+        run: |
+          set -euo pipefail
+          mkdir -p work out/evidence out/files
+          URL='https://s3.belkin.com/support/assets/belkin/gpl/F9K1103_v1.10.23.tar.gz'
+          echo "$URL" > out/SOURCE-URL.txt
+          curl -I -L --fail --retry 4 "$URL" > out/http-head.txt
+          curl -L --fail --retry 4 --retry-delay 3 -o work/F9K1103_v1.10.23.tar.gz "$URL"
+          sha256sum work/F9K1103_v1.10.23.tar.gz | tee out/GPL-SHA256.txt
+          stat -c 'bytes=%s' work/F9K1103_v1.10.23.tar.gz | tee out/GPL-SIZE.txt
+          file work/F9K1103_v1.10.23.tar.gz | tee out/GPL-FILETYPE.txt
+          gzip -t work/F9K1103_v1.10.23.tar.gz
+          tar -tzf work/F9K1103_v1.10.23.tar.gz > out/TAR-MANIFEST.txt
+
+      - name: Extract and inventory
+        run: |
+          set -euo pipefail
+          mkdir -p work/src
+          tar -xzf work/F9K1103_v1.10.23.tar.gz -C work/src
+          find work/src -type f -printf '%P\t%s\n' | sort > out/FILE-SIZE-MANIFEST.tsv
+          find work/src -type f | wc -l > out/FILE-COUNT.txt
+          du -sh work/src > out/EXTRACTED-SIZE.txt
+
+      - name: Locate board and boot evidence
+        run: |
+          set -euo pipefail
+          ROOT=work/src
+          rg -l -i --hidden --glob '!*.o' --glob '!*.a' --glob '!*.so*' --glob '!*.ko' \
+            'F9K1103|N750F9K1103VB|BN750DB|HW_WAN_MAC|HW_LAN_MAC|RTL8367|RT3883|0x7a0000|0x7f0000|0x50000' \
+            "$ROOT" | sed "s#^$ROOT/##" | sort -u > out/evidence/KEY-HIT-FILES.txt || true
+
+          rg -n -i --hidden --glob '!*.o' --glob '!*.a' --glob '!*.so*' --glob '!*.ko' \
+            -C 3 'F9K1103|N750F9K1103VB|BN750DB|HW_WAN_MAC|HW_LAN_MAC' \
+            "$ROOT" > out/evidence/MODEL-IDENTITY-HITS.txt || true
+
+          rg -n -i --hidden --glob '!*.o' --glob '!*.a' --glob '!*.so*' --glob '!*.ko' \
+            -C 4 'RTL8367R|RTL8367B|8367|RGMII|SMI|gpio.*(1|2)' \
+            "$ROOT" > out/evidence/SWITCH-HITS.txt || true
+
+          rg -n -i --hidden --glob '!*.o' --glob '!*.a' --glob '!*.so*' --glob '!*.ko' \
+            -C 4 'GPIO|RESET|WPS|LED|USB_LED|POWER_LED|WAN_LED|LAN_LED' \
+            "$ROOT" | grep -i -E 'f9k1103|bn750|gpio|reset|wps|led' > out/evidence/GPIO-LED-HITS.txt || true
+
+          rg -n -i --hidden --glob '!*.o' --glob '!*.a' --glob '!*.so*' --glob '!*.ko' \
+            -C 5 '0x00050000|0x50000|0x007a0000|0x7a0000|0x007f0000|0x7f0000|mtdparts|partition|factory|uboot-env|user-cfg' \
+            "$ROOT" > out/evidence/FLASH-LAYOUT-HITS.txt || true
+
+          rg -n -i --hidden --glob '!*.o' --glob '!*.a' --glob '!*.so*' --glob '!*.ko' \
+            -C 4 'RT3091|RT3092|RT3883|EEPROM|calibration|factory.*8000|0x8000' \
+            "$ROOT" > out/evidence/RADIO-CALIBRATION-HITS.txt || true
+
+          rg -n -i --hidden --glob '!*.o' --glob '!*.a' --glob '!*.so*' --glob '!*.ko' \
+            -C 5 'uImage|N750F9K1103VB|LZMA|firmware.*size|image.*size|crc|upgrade|recovery|TFTP|10\.10\.10\.123' \
+            "$ROOT" > out/evidence/IMAGE-BOOT-RECOVERY-HITS.txt || true
+
+      - name: Copy high-value text source files
+        run: |
+          set -euo pipefail
+          ROOT=work/src
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil, os
+          root=Path('work/src')
+          out=Path('out/files')
+          patterns=('F9K1103','BN750DB','N750F9K1103VB','HW_WAN_MAC','HW_LAN_MAC','RTL8367','RT3883')
+          selected=set()
+          for p in root.rglob('*'):
+              if not p.is_file() or p.stat().st_size>2_000_000:
+                  continue
+              try:
+                  b=p.read_bytes()
+                  t=b.decode('utf-8',errors='ignore')
+              except Exception:
+                  continue
+              if any(x.lower() in t.lower() or x.lower() in p.name.lower() for x in patterns):
+                  selected.add(p)
+          for p in sorted(selected):
+              rel=p.relative_to(root)
+              dest=out/rel
+              dest.parent.mkdir(parents=True,exist_ok=True)
+              shutil.copy2(p,dest)
+          with open('out/SELECTED-FILES.txt','w') as f:
+              for p in sorted(selected):
+                  f.write(str(p.relative_to(root))+'\n')
+          PY
+          find out/files -type f -print0 | sort -z | xargs -0 -r sha256sum > out/SELECTED-FILES-SHA256.txt
+
+      - name: Build semantic truth matrix
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,csv
+          ev=Path('out/evidence')
+          texts='\n'.join(p.read_text(errors='replace') for p in ev.glob('*.txt'))
+          low=texts.lower()
+          facts=[
+            ('model_F9K1103','f9k1103' in low),
+            ('uimage_name_N750F9K1103VB','n750f9k1103vb' in low),
+            ('HW_WAN_MAC','hw_wan_mac' in low),
+            ('HW_LAN_MAC','hw_lan_mac' in low),
+            ('RTL8367_family','rtl8367' in low),
+            ('RT3883','rt3883' in low),
+            ('RT309x','rt3091' in low or 'rt3092' in low),
+            ('flash_0x50000','0x50000' in low or '0x00050000' in low),
+            ('flash_0x7f0000','0x7f0000' in low or '0x007f0000' in low),
+            ('factory_0x8000','0x8000' in low and 'factory' in low),
+            ('recovery_or_tftp','recovery' in low or 'tftp' in low),
+          ]
+          with open('out/GPL-FACT-MATRIX.csv','w',newline='') as f:
+              w=csv.writer(f); w.writerow(['fact','hit']); w.writerows((k,'YES' if v else 'NO') for k,v in facts)
+          Path('out/GPL-FACT-MATRIX.txt').write_text('\n'.join(f'{k}={"YES" if v else "NO"}' for k,v in facts)+'\n')
+          PY
+
+          cat > out/README.txt <<'EOF'
+          Exact official Belkin F9K1103 v1.10.23 GPL-source acquisition and static evidence sweep.
+          Source URL is recorded in SOURCE-URL.txt.
+          This artifact is evidence only; it does not assert physical boot of any custom image.
+          EOF
+          sha256sum out/*.txt out/*.csv 2>/dev/null > out/REPORT-SHA256SUMS.txt || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: F9K1103-v1.10.23-GPL-AUDIT
+          path: out/
+          compression-level: 6
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: F9K1103-v1.10.23-GPL-ARCHIVE
+          path: work/F9K1103_v1.10.23.tar.gz
+          compression-level: 0
