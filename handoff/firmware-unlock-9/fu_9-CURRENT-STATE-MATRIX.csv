@@ -1,0 +1,75 @@
+DOMAIN,ITEM,STATE,EVIDENCE,NOTES
+R25 Stock,LT500V2-R25-2.4.16 stock image,SOURCE_VERIFIED,SHA256 57aed945a9f485d178d73a844e420fc2b441e60821e243d3d19d07dd4a3143d6,Authoritative stock firmware
+R25 Hardware,Physical model/board,TARGET_VERIFIED,LT500D V2.0 / R25,Physical target authoritative
+R25 Hardware,Kernel,TARGET_VERIFIED,Linux 4.4.140,Physical runtime
+R25 Hardware,RAM/TNOR,TARGET_VERIFIED,128MiB / 16MiB,Physical runtime
+R25 Cellular,Quectel EC200A-EL,TARGET_VERIFIED,cdc_ether usb0,Preserve as frozen baseline
+R25 Cellular,network.4g,TARGET_VERIFIED,usb0 online,Do not rewrite casually
+R25 Identity,bdinfo check/md5/checkuuid,TARGET_VERIFIED,PASS observed,dbg is separate
+R25 Debug,bdinfo dbg stock retail,TARGET_VERIFIED,FAIL expected,Do not fake OK
+R25 Debug,bdinfo_check_dbg algorithm,SOURCE_VERIFIED,libbdinfo static RE,Exact R25 2.4.16
+R25 Debug,/etc/rom_release retail gate,SOURCE_VERIFIED,libbdinfo static RE,Separate from token
+R25 Access,Dropbear gate,SOURCE_VERIFIED,bdinfo dbg init gate,Stock behavior
+R25 Access,Telnet gate,SOURCE_VERIFIED,bdinfo dbg init gate,Stock behavior
+R25 Access,Hidden Terminal,SOURCE_VERIFIED,admin/system/terminal + luci.forbidden,Native hidden route
+R25 Access,Sandbox/Telnet page,SOURCE_VERIFIED,Native CBI,Native hidden/maintenance
+R25 OPKG,H09 backend,LIFECYCLE_VERIFIED,Full install-upgrade-remove lifecycle,Frozen baseline
+R25 OPKG,Package state,TARGET_VERIFIED,127 total / 86 kmods / 41 userland,Reconstructed
+R25 OPKG,Core package lock,TARGET_VERIFIED,6 locked core packages,No Upgrade All
+R25 UI,H11-02 install/runtime,TARGET_VERIFIED,Verifier PASS,Branding visual gaps remain
+R25 UI,Dark theme runtime,TARGET_OBSERVED,Physical screenshots/runtime,Pixel fidelity open
+R25 UI,Developer V2 READONLY-02,TARGET_VERIFIED,Probe/verify/selftest PASS,Frozen safe baseline
+R25 UI,Developer V3,STATIC_VERIFIED,24 core + 54 native catalog,Not all native entries are usable
+R25 UI,Developer V4 CLEAN-06,TARGET_VERIFIED via C27,C27 verifier,No normal UI duplication
+R25 Runtime,C27 cumulative installable,TARGET_VERIFIED,RE-LT500V2-R25-OPENCUDY-CUMULATIVE-27,Runtime package not final flash
+R25 Image,Candidate47 sysupgrade image,TARGET_VERIFIED_FORMAT,GUI accept + sysupgrade -T,No physical flash/boot proof
+R25 Image,Candidate47 actual boot,TARGET_REQUIRED,None,Must never be described as booted
+R25 OTA,Scheduled vendor OTA suppression,TARGET_VERIFIED in cumulative lineage,auto_upgrade=0,Persistence requirement
+R25 Policy,TR-069/CWMP,EXCLUDED,Project policy,Do not reintroduce
+R25 Management,cmagent native dispatcher,SOURCE_VERIFIED,service_call modules,Separate from hcshd
+R25 Management,cmsd native transport,SOURCE_VERIFIED,MQTT/TLS/ubus/Lua,Default OFF cloud-binding layer
+R25 Management,hcshd,SOURCE_VERIFIED,RSA gated UDP maintenance daemon,Separate service plane
+R25 Management,cmagent->hcshd direct bridge,NOT_FOUND_STATIC,Exact corpus search,Do not call ABSENT
+R25 Management,cmsd->hcshd direct bridge,NOT_FOUND_STATIC,Exact corpus search,Do not call ABSENT
+R25 Management,JWT broker auth,SOURCE_VERIFIED,auth_plugin_jwt + libbdinfo,Separate from cmagent -j capability
+R25 Management,hcshd/libbdinfo shared RSA anchor,SOURCE_VERIFIED,e68b3ce3...,Vendor trust-domain evidence
+R25 Management,MQTT default WAN exposure,STATIC_POLICY_BLOCKED,WAN input REJECT no allow rule,Runtime packet path not measured
+R25 Management,hcshd default WAN exposure,STATIC_POLICY_BLOCKED,WAN input REJECT no allow rule,Runtime packet path not measured
+R25 Management,cmagent first-party command callers,SOURCE_VERIFIED,sync_command/sync_config,Internal mesh/admin use
+R25 FU8,hcshd legitimate upstream sender provenance,OPEN,Binary/static work,Do not build access recipe
+R25 FU8,cmagent final inbound parser details,OPEN,Binary control-flow gap,Static RE task
+R25 FU8,bdinfo_check_uuid full algorithm,PARTIAL,Strong identity evidence,Exact final semantics remain gap unless later proof
+R25 CSP2.5,Exact public R25 2.5.x,UNKNOWN_NOT_FOUND,Targeted hunt,No random spraying
+R25 CSP2.5,Private beta precedent,CROSS_DONOR_CORROBORATED,First-party other-model/support evidence,Not exact R25 payload
+C200P,2.5.14 capture,SOURCE_VERIFIED,Exact package + inner BIN,Rosetta stone
+C200P,2.5.15 capture,SOURCE_VERIFIED,Canonical + CN byte-identical,Near-public successor
+C200P,Support SSH bytecode flow,STATIC_VERIFIED,Lua 5.1 disassembly,Do not transplant formula
+P2/R91,2.4.22 stable,SOURCE_VERIFIED,Recovered exact firmware,Cellular lineage donor
+P2/R91,2.4.29 stable,SOURCE_VERIFIED,Recovered exact firmware,Public four-hour-fix generation
+P2/R91,2.4.29b beta,SOURCE_VERIFIED,Recovered exact firmware,/etc/rom_research delta
+P2/R91,4-hour cellular causal mechanism,PARTIAL,Public diff + release note,No literal timer isolated
+R125 CSP2.5,R25 hardware + CSP2.5 userspace hybrid,TARGET_OBSERVED,Physical hybrid evidence,Separate branch
+R125 CSP2.5,5GHz/LTE,TARGET_VERIFIED,Physical runtime,Wireless carousel UI issue separate
+R125 CSP2.5,MQTT/TLS after crypt ABI fix,TARGET_OBSERVED,cmagent/mosquitto connect,Cloud bind unresolved
+R125 CSP2.5,Cloud bind,OPEN,Not user bind me / autocloud rollback,Do not call complete
+R125 CSP2.5,Captive Portal,HOLD,No installed chilli payload,Protect auth/login
+R125 CSP2.5,Native SAuth repair,FROZEN_WORKING,Login current state,Do not regress
+R125 CSP2.5,R125_2,INCIDENT_ARCHIVE,Negative evidence,Not decision source
+R125 CSP2.5,Old Candidate-02,REVOKED,Superseded by user,Do not use as current base
+OpenWrt23 UI,V69 Truth-04,STATIC/INTEGRATION_BASELINE,SHA e8e2f65f...,Separate evidence domain
+OpenWrt23 UI,WS WISP/SMS/WAN/Devices,IMPLEMENTED_STATIC,WS Bundle-02,Backend blockers remain
+OpenWrt23 UI,Wireless/WISP donor semantics,FROZEN_DONOR_VALIDATED,V67 General Settings,Do not rewrite without concrete audit
+OpenWrt23 UI,TR-069,EXCLUDED,Project policy,Do not add
+Belkin Hardware,Physical target,F9K1103_V1,User device,Not F9K1109 hardware
+Belkin Reference,OpenWrt 19.07.0 F9K1109 image,PHYSICAL_REFERENCE,User says this is what is installed/used,Not native F9K1103 build
+Belkin LEDE,F9K1103 DTS/source port,SOURCE_VERIFIED,Repo source,Custom target not rename
+Belkin LEDE,Clean direct-LZMA build,STATIC_VERIFIED,Run 36964886797 / SHA b78106c7...,Primary static candidate
+Belkin LEDE,Direct-LZMA build,STATIC_VERIFIED,Run 36964149495 / SHA 67c4b54e...,Alternate candidate
+Belkin LEDE,Minimal boot build,STATIC_VERIFIED,Run 36964690258 / SHA a918447c...,Minimal candidate
+Belkin LEDE,Physical boot,TARGET_REQUIRED,No target proof yet,Current primary project gate
+Belkin OpenWrt23,F9K1103 build,BUILD_SUCCESS_STATIC,Run 36031900371,Fallback/reference
+Belkin ImmortalWrt18,F9K1103 build,BUILD_SUCCESS_STATIC,Run 36031917929,Fallback/reference
+Belkin Cudy Port,WR1200 V2 2.4.x donor,CROSS_DONOR_STRONG,UI similarity audit,Primary Cudy UI donor after LEDE boot
+Belkin Cudy Port,LT500D 2.4.16 donor,CROSS_DONOR_STRONG,Deep RE corpus,Backend/UI semantics donor
+Belkin Cudy Port,Raw Cudy hardware binaries,DO_NOT_BLIND_PORT,Architecture/hardware mismatch,Adapter/reimplement instead
+Belkin Cudy Port,Final Cudy UI integration,NOT_STARTED_ON_STABLE_LEDE,Blocked by physical LEDE proof,Current future phase
