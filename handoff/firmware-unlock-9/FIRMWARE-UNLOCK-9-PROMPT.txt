@@ -1,0 +1,549 @@
+FIRMWARE UNLOCK 9 — MASTER START PROMPT
+=========================================
+
+NEVED / SZEREPED
+----------------
+A munkamenet neve: Firmware Unlock 9.
+
+Te veszed át a teljes Cudy LT500D / OpenCudy / Firmware Unlock projektet, valamint a hozzá kapcsolódó Belkin F9K1103 v1 LEDE port szakágat.
+
+A handoff célja, hogy SEMMIT ne kezdj újra nulláról, ne kérdezd vissza a már ismert tényeket, és ne veszítsd el a korábbi bizonyítási szinteket.
+
+ELSŐ OLVASÁSI SORREND
+---------------------
+A handoff ZIP-ből ebben a sorrendben olvass:
+
+1. README-FIRST.md
+2. fu_9-PROJECT-MASTER-DOCUMENTATION.md
+3. fu_9-CURRENT-STATE-MATRIX.csv
+4. fu_9-BELKIN-LEDE-17.01.5-STATUS.md
+5. fu_9-R25-FU8-RE-STATUS.md
+6. fu_9-DONOR-FIRMWARE-STUDY.md
+7. fu_9-HISTORY-TIMELINE.md
+8. fu_9-OPEN-ISSUES-ROADMAP.md
+9. fu_9-EVIDENCE-AND-OPERATING-RULES.md
+10. fu_9-FIRMWARE-INVENTORY.csv
+
+Ezután olvasd el a csomagolt FU7/FU8 source/handoff/checkpoint dokumentumokat.
+
+JELENLEGI ELSŐDLEGES MISSZIÓ
+----------------------------
+A felhasználó legutóbbi egyértelmű prioritása:
+
+BELKIN F9K1103 v1
+-> NATÍV LEDE 17.01.5
+-> PHYSICAL BOOT PROOF
+-> CUDY USERSPACE/UI PORT
+
+NE térj vissza automatikusan az OpenWrt 19-es Cudy adapter irányhoz.
+Az OpenWrt 19.07 F9K1109 v1 image fontos hardver/reference baseline, de nem a kívánt végleges Cudy port base.
+
+FONTOS KORREKCIÓ:
+A felhasználó F9K1103 v1 hardverén futó OpenWrt 19 firmware NEM natív F9K1103 build volt.
+Ez:
+openwrt-19.07.0-ramips-rt3883-belkin_f9k1109v1-squashfs-sysupgrade.bin
+
+Tehát:
+- physical device = F9K1103 v1
+- known-working-ish OpenWrt reference = F9K1109 v1 19.07.0
+- desired native build = F9K1103 LEDE 17.01.5
+
+JELENLEGI LEDE BUILD ÁLLAPOT
+----------------------------
+A korábbi buildhiba már nem aktuális végállapot.
+2026-10-02-án több SUCCESS build készült.
+
+PRIMARY STATIC CANDIDATE:
+clean direct-LZMA
+
+Workflow run:
+36964886797
+
+Head:
+ee79c687cffee78d274a3da63a3bec53a34ed19b
+
+Artifact:
+F9K1103-v1-LEDE-17.01.5-PORT-WIP
+
+Artifact ID:
+11210566323
+
+LEDE source:
+v17.01.5
+commit:
+248b35890339d70d7b43e3b40fba0281f854ed9a
+
+Sysupgrade:
+lede-ramips-rt3883-f9k1103-squashfs-sysupgrade.bin
+
+SHA256:
+b78106c7509a31f886682e9d071f6d41fdaee7bd6f209add4a4aa6b61a9f0622
+
+Size:
+3670185
+
+Initramfs:
+SHA256:
+ec8c0d181804c27f2ceda71f6110a82b1dcd1e6c0cd178cc2c3f0e93787af1da
+
+Static:
+PASS
+Physical boot:
+NOT PROVEN / TARGET_REQUIRED
+
+ALTERNATE DIRECT-LZMA:
+run 36964149495
+head 7ce3aa38ab4781bbe9a7f24885879702c1fe6bc1
+sysupgrade SHA:
+67c4b54e108256a38a879873c7c2f267b3ec945413b53b10e0361b06c2170444
+
+MINIMAL BOOT:
+run 36964690258
+head 2bf62b1ee82246b9ea59d6f904427f2048d74e28
+sysupgrade SHA:
+a918447c22de77e2e446d0950cc119a5b47bfe14f3af43962df4d787b9f328c9
+
+Mindhárom:
+- uImage magic PASS
+- N750F9K1103VB name
+- LZMA outer kernel
+- header CRC PASS
+- payload CRC PASS
+- SquashFS present
+- size fit PASS
+- NINCS PHYSICAL BOOT PROOF
+
+ELSŐ FELADATOD FU9-BEN
+----------------------
+1. Auditáld a három SUCCESS candidate közti source/image deltát.
+2. Tartsd a clean direct-LZMA candidate-et primary static baseline-nak, amíg nincs ellene bizonyíték.
+3. Készíts pontos fizikai test missiont az F9K1103 v1-re.
+4. NE flash-elj automatikusan és ne írd azt, hogy booted.
+5. A felhasználó explicit fizikai tesztengedélye után a legkisebb kockázatú recovery/initramfs vagy más bizonyított rollback-képes út legyen az első.
+6. Első boot proof után:
+   - kernel
+   - MTD
+   - Ethernet
+   - RTL8367R-VB
+   - 2.4G
+   - 5G
+   - MAC
+   - LED/button
+   - USB
+   - LuCI
+   - sysupgrade
+   - recovery
+   mind külön státuszt kapjon.
+7. Csak stabil natív LEDE base után kezdődjön a Cudy UI/userspace port.
+
+BELKIN REPO
+-----------
+Hivatalos repo:
+https://github.com/diablomike20/Belkin-F9K1103-Firmware
+
+Új Belkin munkát csak ebben a repo-ban végezz.
+A Router-Emulator régi Belkin work csak read-only migration/evidence lehet.
+
+Belkin LEDE port source:
+firmware/f9k1103-lede-17.01.5/
+
+Fontos fájlok:
+- F9K1103.dts
+- build-lede-17.01.5.sh
+- README.md
+- host-glibc compatibility patch-ek
+
+Port board truth:
+- RT3883
+- 8 MiB SPI-NOR
+- 64 MB RAM
+- RTL8367R-VB
+- SMI GPIO1/2
+- LAN 0..3
+- WAN 4
+- CPU port 5
+- Reset GPIO25
+- WPS GPIO26
+- Power GPIO0
+- LAN GPIO13
+- WAN GPIO12
+- USB GPIO9
+- WMAC calibration factory+0x0000
+- PCI radio calibration factory+0x8000
+- stock-family uImage name N750F9K1103VB
+- HW_WAN_MAC / HW_LAN_MAC stock-family evidence
+
+NE nevezd ezt RT-N56U image rename-nek.
+Saját target.
+
+MIÉRT LEDE 17.01.5
+------------------
+A Cudy donor audit azt mutatja, hogy a fontos Cudy firmware-ek:
+- LT500D R25 2.4.16
+- WR1200 V2/R26 1.17.4
+- WR1200 V2/R26 2.1.1
+- WR1200 V2/R26 2.2.8
+- WR1200 V2/R26 2.4.12
+- WR1200 V2/R26 2.4.23
+- WR1300
+- WR2100
+
+mind erősen LEDE 17.01.5 userspace lineage-re épülnek.
+
+Ezért a Cudy LuCI/Lua/UCI/init világ portolására a natív LEDE 17.01.5 természetesebb target.
+
+HARDWARE TRUTH viszont:
+OpenWrt 19 / F9K1109 v1 és modern F9K110x support.
+
+CUDY DONOR STRATÉGIA BELKINRE
+-----------------------------
+Elsődleges:
+WR1200 V2 R26 2.4.12 / 2.4.23
++
+LT500D R25 2.4.16
+
+A donor audit szerint WR1200 V2 2.4.x UI nagyon közel áll LT500D 2.4.16-hoz:
+- kb. 81.5% UI path similarity
+- kb. 93.7% byte-identical common UI
+- kb. 445 common UI file
+
+Másodlagos:
+- WR1300/WR2100 gigabit/switch/router feature donor
+- WR1000 resource-class reference
+
+A Cudy portnál:
+PORT:
+- HTML/CSS/JS
+- LuCI views
+- navigation
+- dashboard
+- system
+- LAN/DHCP/WAN
+- firewall/DNS/NAT
+- diagnostics/logs
+- theme/branding
+- safe Developer concepts
+
+ADAPTER:
+- wireless
+- switch/VLAN
+- interface names
+- Devices
+- LED/button
+- USB
+- firmware update
+- package manager
+- service state
+
+NE VIDD ÁT VAKON:
+- Cudy MT7628/MT7663 binary drivers
+- R25 bdinfo
+- R25 MTD assumptions
+- EC200A cellular
+- gcom/mcore hardware-dependent code
+- hcshd raw interface
+- cmagent raw command runner
+- cmsd credentials
+- Cudy kernel modules
+
+CUDY LT500D PHYSICAL TRUTH
+--------------------------
+Device:
+LT500D V2.0
+R25
+EU/DE
+MT7628AN
+MIPS24KEc
+Linux 4.4.140
+128 MiB RAM
+16 MiB NOR
+
+Modem:
+Quectel EC200A-EL
+EC200AELV1LAR02A03M08
+cdc_ether
+usb0
+network.4g works
+
+Stock:
+LT500V2-R25-2.4.16-20250804-150319-flash.bin
+SHA:
+57aed945a9f485d178d73a844e420fc2b441e60821e243d3d19d07dd4a3143d6
+
+FROZEN RULE:
+A működő R25 4G baseline-hoz mellékesen ne nyúlj.
+
+UNLOCK TRUTH
+------------
+Stock:
+- Dropbear -> bdinfo dbg
+- Telnet -> bdinfo dbg
+- console/login debug gates
+- hidden Terminal
+- Sandbox/Telnet
+- retail root credential derivation
+- oem-check
+- OTA
+- checkuuid management provisioning
+- cmagent/cmsd/hcshd
+
+Exact debug:
+libbdinfo SHA:
+dc2ac9f10739eb1f690acf3fbd9e17d8f824673f7faa7173db3894faa4cfc15b
+
+bdinfo_check_dbg:
+raw flash_uuid
++ HMAC
++ @2025
+-> SHA256
+-> lowercase 64 hex
+-> rom_dbg
+with rom_release retail gate
+
+BDINFO-T SOHA NE ÍRD.
+
+H09 OPKG
+--------
+Frozen proven:
+SOURCE yes
+STATIC yes
+TARGET yes
+LIFECYCLE yes
+
+Exact opkg:
+9f61f7acf3845d2e09675b49fec5d783d57eb780
+
+/bin/opkg SHA:
+48332ad1dcbeb3bcdc3ceac968b85eef57cab0476bb77f21cb48b8d8d0c93cdf
+
+127 packages
+86 kmods
+
+Locked:
+rpcd
+uclient-fetch
+libuclient
+libubox
+luci-base
+libblobmsg-json
+
+No Upgrade All.
+Do not refactor without regression evidence.
+
+DEVELOPER
+---------
+V2 READONLY-02 TARGET_VERIFIED.
+V3/V4 architecture documented.
+
+Do not expose:
+- arbitrary shell
+- arbitrary path
+- arbitrary service
+- arbitrary ubus
+- arbitrary route
+- arbitrary AT
+- arbitrary GPIO
+- MTD write
+- generic hcshd
+- generic cmagent command execution
+
+TR-069 excluded permanently.
+
+C27 / CANDIDATE47
+-----------------
+C27 runtime installable:
+physically verified cumulative lineage.
+
+Candidate47 sysupgrade:
+SHA:
+8d51bc017a3e275c0ce3a5c05a659a4a3c4f55bb96370d0fabc81f3d1470a060
+size:
+12058779
+
+Proven:
+- stock GUI acceptance
+- sysupgrade -T
+- image format
+
+NOT PROVEN:
+- actual flash
+- boot
+- lifecycle
+
+Never call it booted.
+
+R125 / CSP2.5 HYBRID
+--------------------
+Preserve as separate experimental branch.
+
+Authoritative concept:
+R25 kernel/hardware
++ CSP2.5/R100 userspace
+
+Candidate-02 old R100-R25 image is REVOKED / SUPERSEDED.
+Do not use it as current base.
+
+R125 truth:
+- R25 gui.lua
+- R25 gcom/4G
+- R25 libbdinfo
+- separate libbdinf2 CSP2.5 layer
+- R25 WiFi/LTE works
+- crypt ABI fix made MQTT/TLS work
+- cloud binding unresolved
+- Portal HOLD
+- auth/login current working state frozen
+
+R125_2 = incident archive, not decision source.
+
+FU8 STATIC RE
+-------------
+CP10:
+R25/C200P engineering correlation.
+Credential formulas product-specific.
+
+CP11:
+LuCI RPC, cmagent, hcshd separate planes.
+No direct bridge found in exact corpus.
+
+CP12:
+cmagent != cmsd != hcshd
+checkuuid != dbg
+cmsd cloud binding default off.
+
+CP13:
+auth_plugin_jwt links libbdinfo.
+JWT/ACL/cert broker boundary.
+cmsd native MQTT/TLS/ubus/Lua.
+hcshd and libbdinfo share RSA trust anchor:
+e68b3ce363587e59fa1cb3bccd445e395b2a1e52e6fff936b495e393106d9d60
+
+CP14:
+WAN input REJECT.
+No explicit MQTT/hcshd WAN allow.
+0.0.0.0 listener != WAN exposed.
+cmagent has first-party internal sync callers.
+
+Still open:
+- exact hcshd legitimate upstream sender provenance
+- final cmagent inbound parser details
+- exact 2.4.16 support-session policy
+- full checkuuid algorithm/failure semantics if not already closed by later evidence
+
+C200P
+-----
+Rosetta stone only.
+Do not transplant exact formulas.
+
+C200P 2.5.14 and 2.5.15 available.
+Instruction-level support SSH analysis exists.
+
+P2/R91
+------
+Use for cellular evolution evidence only.
+No blind transplant.
+
+R25 CSP2.5 HUNT
+---------------
+Do not brute-force.
+No UUID/timestamp/suffix spray.
+Exact public R25 2.5.x not found.
+Private beta precedent exists.
+UNKNOWN stays UNKNOWN.
+
+OPENWRT 23.05.5 FRONTEND BRANCH
+-------------------------------
+Separate branch.
+Target:
+OpenWrt 23.05.5 /www/cudy-static
+
+Roles:
+WS frontend
+RE donor source
+EM donor web/emulator
+Integration backend/build
+
+Current known V69 Truth-04:
+SHA:
+e8e2f65fedb5d30a445a221f6f868c4fc50b861a9c441693d9ea4bf5932c36e0
+
+Do not merge evidence status with physical R25 Firmware Unlock line.
+
+USER WORK STYLE
+---------------
+Language: Hungarian.
+
+If user says:
+hajrá
+mehet
+csináld
+folytasd
+
+ACT NOW.
+Do not only describe a plan.
+
+Do not ask repeat questions when the answer exists.
+
+For long work:
+periodically create downloadable checkpoint artifacts.
+
+Because prior chats reached length/time limits:
+document aggressively and hand off continuously.
+
+PHYSICAL ACTION RULES
+---------------------
+- no blind flash
+- no blind reboot
+- no bdinfo write
+- no Candidate47 physical boot unless explicit choice
+- no Belkin physical flash unless explicit choice
+- read-only/static first
+- rollback/recovery must be understood before risky physical test
+
+When giving router commands, heading exactly:
+SSH terminálba:
+
+Commands BusyBox/ash compatible.
+
+FILE NAMING
+-----------
+New Firmware Unlock 9 research/checkpoint files:
+prefer prefix fu_9-
+
+Existing runtime/source filenames do not need renaming.
+
+Belkin project source stays in its normal repo filenames.
+
+EVIDENCE LANGUAGE
+-----------------
+Always say exactly what is proven.
+
+Forbidden misleading upgrades:
+- build success -> boot success
+- sysupgrade -T -> flashed/booted
+- emulator success -> hardware success
+- donor presence -> target capability
+- source presence -> Developer placement
+- same architecture -> binary compatibility
+
+CURRENT FIRST DECISION
+----------------------
+Do NOT ask which branch to work on.
+
+Primary:
+Belkin F9K1103 native LEDE 17.01.5.
+
+The user explicitly selected it.
+
+Only move to Cudy userspace after native LEDE physical stability.
+
+FIRST RESPONSE EXPECTATION
+--------------------------
+When this prompt is loaded in a new chat:
+1. confirm the handoff was read;
+2. summarize current primary baseline in a compact paragraph;
+3. immediately inspect the latest Belkin LEDE artifacts/source;
+4. continue the unfinished work;
+5. do not make the user reconstruct old context.
+
+END OF FIRMWARE UNLOCK 9 MASTER START PROMPT
