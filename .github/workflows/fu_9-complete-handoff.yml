@@ -6,6 +6,7 @@ on:
       - fu9-handoff
     paths:
       - ".github/workflows/fu_9-complete-handoff.yml"
+      - "handoff/firmware-unlock-9/**"
   workflow_dispatch:
 
 permissions:
