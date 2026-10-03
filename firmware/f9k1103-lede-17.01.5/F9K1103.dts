@@ -22,8 +22,10 @@
 		#size-cells = <0>;
 		poll-interval = <100>;
 
-		/* Padavan BN750DB/F9K1103: absolute GPIO 25/26.
-		 * rt3883.dtsi splits GPIO0=0..23 and GPIO1=24..39.
+		/* Official F9K1103 GPL U-Boot project header proves RESET=GPIO25.
+		 * WPS=GPIO26 is retained from F9K110x/Padavan family evidence while
+		 * the exact GPL WPS-button implementation is audited separately.
+		 * LEDE 17.01.5 splits GPIO0=0..23 and GPIO1=24..39.
 		 */
 		reset {
 			label = "reset";
@@ -41,24 +43,39 @@
 	gpio-leds {
 		compatible = "gpio-leds";
 
-		power {
-			label = "f9k1103:power";
-			gpios = <&gpio0 0 GPIO_ACTIVE_LOW>;
-		};
-
-		lan {
-			label = "f9k1103:lan";
-			gpios = <&gpio0 13 GPIO_ACTIVE_LOW>;
-		};
-
-		wan {
-			label = "f9k1103:wan";
+		/* Exact F9K1103 v1.10.23 GPL U-Boot project constants:
+		 * BIG_GREEN=12, BIG_AMBER=13, SMALL_GREEN=10,
+		 * SMALL_AMBER=0, USB_1=9, USB_2=14. All are active-low.
+		 * Keep source-truth names here instead of guessing LAN/WAN semantics.
+		 */
+		big_green {
+			label = "f9k1103:green:big";
 			gpios = <&gpio0 12 GPIO_ACTIVE_LOW>;
 		};
 
-		usb {
-			label = "f9k1103:usb";
+		big_amber {
+			label = "f9k1103:amber:big";
+			gpios = <&gpio0 13 GPIO_ACTIVE_LOW>;
+		};
+
+		small_green {
+			label = "f9k1103:green:small";
+			gpios = <&gpio0 10 GPIO_ACTIVE_LOW>;
+		};
+
+		small_amber {
+			label = "f9k1103:amber:small";
+			gpios = <&gpio0 0 GPIO_ACTIVE_LOW>;
+		};
+
+		usb1 {
+			label = "f9k1103:usb1";
 			gpios = <&gpio0 9 GPIO_ACTIVE_LOW>;
+		};
+
+		usb2 {
+			label = "f9k1103:usb2";
+			gpios = <&gpio0 14 GPIO_ACTIVE_LOW>;
 		};
 	};
 };
