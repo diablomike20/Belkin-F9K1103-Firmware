@@ -23,8 +23,8 @@
 		poll-interval = <100>;
 
 		/* Official F9K1103 GPL U-Boot project header proves RESET=GPIO25.
-		 * WPS=GPIO26 is retained from F9K110x/Padavan family evidence while
-		 * the exact GPL WPS-button implementation is audited separately.
+		 * Official GPL wps_monitor MIPS disassembly proves WPS=GPIO26:
+		 * wps_gpio_btn_init() loads 26 and stores it into wps_btn_gpio.
 		 * LEDE 17.01.5 splits GPIO0=0..23 and GPIO1=24..39.
 		 */
 		reset {
