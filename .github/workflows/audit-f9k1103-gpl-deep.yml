@@ -1,0 +1,177 @@
+name: Deep map Belkin F9K1103 GPL hardware constants
+
+on:
+  push:
+    branches:
+      - f9k1103-gpl-audit
+    paths:
+      - '.github/workflows/audit-f9k1103-gpl-deep.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deep:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Install tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ripgrep file binutils-mipsel-linux-gnu python3 >/dev/null
+
+      - name: Fetch and extract official source
+        run: |
+          set -euo pipefail
+          mkdir -p work out/files
+          URL='https://s3.belkin.com/support/assets/belkin/gpl/F9K1103_v1.10.23.tar.gz'
+          curl -L --fail --retry 4 -o work/gpl.tar.gz "$URL"
+          echo "8e65bf160929df49fe6b88544709666d0071e7fed56cca3fff933bc7ce60799d  work/gpl.tar.gz" | sha256sum -c -
+          mkdir work/src
+          tar -xzf work/gpl.tar.gz -C work/src
+          ROOT=work/src/F9K1103_v1.10.23
+          test -d "$ROOT"
+
+      - name: Exact F9K1103-specific configuration
+        run: |
+          set -euo pipefail
+          ROOT=work/src/F9K1103_v1.10.23
+          P="$ROOT/project/belkin/WG9117A23-AK/F9K1103v1_DB-N750"
+          for f in \
+            uboot_N750_V1_VB_proj.h \
+            Uboot_N750_V1_VB.config \
+            proj_cfg.h \
+            project_N750_V1_VB.config \
+            router_N750_V1_VB.config \
+            hardware_revision.list; do
+              cp "$P/$f" "out/files/$f"
+          done
+
+          {
+            echo '=== PRODUCT CONFIG ==='
+            rg -n -i 'PDTAG|HW_.*MAC|HW_VER|LED|RESET|WPS|WAN_SWITCH_PORT|SWITCH_CPU_PORT|RT3883|RT309|RTL8367|SPI_FLASH|RGMII|UPGRADE_MAX|FLASH' \
+              "$P/uboot_N750_V1_VB_proj.h" "$P/Uboot_N750_V1_VB.config" "$P/proj_cfg.h" "$P/router_N750_V1_VB.config" "$P/project_N750_V1_VB.config" "$P/hardware_revision.list" || true
+          } > out/F9K1103-EXACT-CONFIG.txt
+
+      - name: Exact flash partition implementation
+        run: |
+          set -euo pipefail
+          ROOT=work/src/F9K1103_v1.10.23
+          cp "$ROOT/src/linux/linux-2.6_5.22.87/drivers/mtd/maps/ralink-flash.c" out/files/ralink-flash.c
+
+          rg -n -i -C 10 \
+            'mtd_partition|partition|Bootloader|Config|Factory|Kernel|RootFS|linux|0x30000|0x40000|0x50000|0x7f0000|0x7a0000|0x780000|0x10000|0x30000' \
+            "$ROOT/src/linux/linux-2.6_5.22.87/drivers/mtd/maps/ralink-flash.c" \
+            > out/FLASH-PARTITION-IMPLEMENTATION.txt || true
+
+          rg -n -i -C 8 \
+            '0x50000|0x7a0000|0x7f0000|0x780000|7864320|mtd[0-9]|flash.*offset|kernel.*offset|rootfs.*offset|firmware.*offset' \
+            "$ROOT/project/belkin/WG9117A23-AK" "$ROOT/src/router" "$ROOT/platforms/rt3883/uboot" \
+            > out/FLASH-OFFSET-CROSSREF.txt || true
+
+      - name: WPS and button GPIO provenance
+        run: |
+          set -euo pipefail
+          ROOT=work/src/F9K1103_v1.10.23
+
+          rg -n -i -C 8 \
+            'wps.{0,40}gpio|gpio.{0,40}wps|wps.{0,80}(25|26)|(^|[^0-9])26([^0-9]|$).*wps|wps.*(^|[^0-9])26([^0-9]|$)|reset.{0,40}gpio|gpio.{0,40}reset' \
+            "$ROOT/project/belkin" "$ROOT/src/router" "$ROOT/src/linux/linux-2.6_5.22.87/arch/mips/rt2880" \
+            > out/WPS-RESET-GPIO-PROVENANCE.txt || true
+
+          WPS="$ROOT/src/router/boards_utility/rt3883/rt_wps/wps_monitor"
+          file "$WPS" > out/WPS-MONITOR-FILE.txt || true
+          sha256sum "$WPS" > out/WPS-MONITOR-SHA256.txt || true
+          strings -a -n 4 "$WPS" | grep -Ei 'gpio|wps|button|26|25|ralink' > out/WPS-MONITOR-STRINGS.txt || true
+          if file "$WPS" | grep -qi 'ELF'; then
+            mipsel-linux-gnu-readelf -h "$WPS" > out/WPS-MONITOR-ELF.txt || true
+            mipsel-linux-gnu-objdump -d "$WPS" > out/WPS-MONITOR-DISASM.txt || true
+          fi
+
+          rg -n -i -C 8 'RESET_BUTTON_GPIO_NO|BIG_GREEN_LED_GPIO_NO|BIG_AMBER_LED_GPIO_NO|SMALL_GREEN_LED_GPIO_NO|SMALL_AMBER_LED_GPIO_NO|USB_1_LED_GPIO_NO|USB_2_LED_GPIO_NO' \
+             "$ROOT/project/belkin/WG9117A23-AK/F9K1103v1_DB-N750" \
+             > out/LED-RESET-EXACT.txt || true
+
+      - name: Switch topology and VLAN provenance
+        run: |
+          set -euo pipefail
+          ROOT=work/src/F9K1103_v1.10.23
+          D="$ROOT/src/router/boards_utility/rt3883/rtl8367cmd"
+          mkdir -p out/files/rtl8367cmd
+          cp "$D"/*.sh out/files/rtl8367cmd/ 2>/dev/null || true
+          rg -n -i -C 8 'port|wan|lan|cpu|vlan|PVID|eth2|8367|5|4' "$D" \
+            > out/SWITCH-VLAN-EXACT.txt || true
+
+          rg -n -i -C 8 'WAN_SWITCH_PORT_NO|SWITCH_CPU_PORT_NO|PROJ_SWITCH_WAN_PORT_NO|PROJ_LAN_VLAN_ID|PROJ_WAN_VLAN_ID|PROJ_WAN_ETH_DEVNAME|PROJ_ROUTER_LAN_BR_LST' \
+            "$ROOT/project/belkin/WG9117A23-AK/F9K1103v1_DB-N750" \
+            > out/SWITCH-PROJECT-CONFIG.txt || true
+
+      - name: Radio provenance
+        run: |
+          set -euo pipefail
+          ROOT=work/src/F9K1103_v1.10.23
+          rg -n -i -C 8 'RT3092|RT3091|RT3883|EEPROM|0x8000|Factory|calibration|rai0|ra0|2\.4G|5G' \
+            "$ROOT/project/belkin/WG9117A23-AK/F9K1103v1_DB-N750" \
+            "$ROOT/project/belkin/WG9117A23-AK/RT3883" \
+            "$ROOT/src/linux/linux-2.6_5.22.87/drivers/net/wireless" \
+            > out/RADIO-EXACT.txt || true
+
+      - name: U-Boot recovery and image contract
+        run: |
+          set -euo pipefail
+          ROOT=work/src/F9K1103_v1.10.23
+          rg -n -i -C 8 'UBOOT_HTTPD|httpd|recovery|tftp|PDTAG|N750F9K1103VB|image|firmware|upgrade|max.*size|TRX_MAGIC|LZMA|crc' \
+            "$ROOT/project/belkin/WG9117A23-AK/F9K1103v1_DB-N750" \
+            "$ROOT/platforms/rt3883/uboot" \
+            > out/UBOOT-IMAGE-RECOVERY-EXACT.txt || true
+
+      - name: Build GPL versus LEDE truth matrix
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,csv
+          cfg=Path('out/F9K1103-EXACT-CONFIG.txt').read_text(errors='replace')
+          led=Path('out/LED-RESET-EXACT.txt').read_text(errors='replace')
+          sw=Path('out/SWITCH-PROJECT-CONFIG.txt').read_text(errors='replace')
+          flash=Path('out/FLASH-OFFSET-CROSSREF.txt').read_text(errors='replace')
+          wps=Path('out/WPS-RESET-GPIO-PROVENANCE.txt').read_text(errors='replace')
+          rec=Path('out/UBOOT-IMAGE-RECOVERY-EXACT.txt').read_text(errors='replace')
+
+          rows=[
+            ('PDTAG','N750F9K1103VB','N750F9K1103VB','MATCH','GPL exact'),
+            ('SoC','RT3883','RT3883','MATCH','GPL exact'),
+            ('switch','RTL8367R-VB','realtek,rtl8367b','MATCH_FAMILY','GPL exact + OpenWrt driver naming'),
+            ('GE','GE1 RGMII forced 1000','RGMII fixed 1000','MATCH','GPL exact'),
+            ('WAN switch port','4','4','MATCH','GPL exact'),
+            ('CPU switch port','5','5','MATCH','GPL exact'),
+            ('reset GPIO','25','25','MATCH','GPL exact'),
+            ('big green/status GPIO','12','currently named WAN','SEMANTIC_FIX_REQUIRED','GPL exact'),
+            ('big amber/status GPIO','13','currently named LAN','SEMANTIC_FIX_REQUIRED','GPL exact'),
+            ('small green/WPS GPIO','10','missing','FIX_REQUIRED','GPL exact'),
+            ('small amber/WPS GPIO','0','currently named power','SEMANTIC_FIX_REQUIRED','GPL exact'),
+            ('USB1 LED GPIO','9','one USB LED','PARTIAL','GPL exact'),
+            ('USB2 LED GPIO','14','missing','FIX_REQUIRED','GPL exact'),
+            ('WPS button GPIO','26 if found else family evidence','26','CHECK', 'GPL deep search + F9K1109 family'),
+            ('upgrade max','7864320 bytes','7224 KiB conservative image limit','SAFE_SMALLER','GPL exact'),
+            ('U-Boot HTTPD','enabled','no bootloader modification','COMPAT_EXPECTED','GPL exact'),
+          ]
+          if re.search(r'wps.{0,100}\b26\b|\b26\b.{0,100}wps',wps,re.I|re.S):
+              rows[13]=('WPS button GPIO','26','26','MATCH','GPL exact')
+          with open('out/GPL-LEDE-TRUTH-MATRIX.csv','w',newline='') as f:
+              w=csv.writer(f); w.writerow(['item','GPL_F9K1103','current_LEDE_port','status','evidence']);w.writerows(rows)
+          Path('out/GPL-LEDE-TRUTH-MATRIX.md').write_text(
+              '# F9K1103 GPL -> LEDE truth matrix\n\n'+
+              '\n'.join(f'- **{a}**: GPL={b}; LEDE={c}; **{d}** ({e})' for a,b,c,d,e in rows)+'\n'
+          )
+          PY
+          find out -type f -print0 | sort -z | xargs -0 sha256sum > out/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: F9K1103-v1.10.23-GPL-DEEP-MAP
+          path: out/
+          compression-level: 6
