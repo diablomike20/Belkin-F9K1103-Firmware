@@ -1,0 +1,21 @@
+TYPE,NAME,REPOSITORY,RUN_OR_ARTIFACT,COMMIT_OR_SHA,STATUS,ROLE
+GitHub Run,LEDE clean direct build,diablomike20/Belkin-F9K1103-Firmware,36964886797,ee79c687cffee78d274a3da63a3bec53a34ed19b,SUCCESS,Primary Belkin static baseline
+GitHub Artifact,LEDE clean direct,diablomike20/Belkin-F9K1103-Firmware,11210566323,c65093267c986af949aab7071c4e4c5d4b021454d249862579509e0b9344b4c6,AVAILABLE,Firmware source
+GitHub Run,LEDE minimal boot,diablomike20/Belkin-F9K1103-Firmware,36964690258,2bf62b1ee82246b9ea59d6f904427f2048d74e28,SUCCESS,Alternate minimal
+GitHub Artifact,LEDE minimal,diablomike20/Belkin-F9K1103-Firmware,11210213174,095ae4f7034c2d6afe81c6f4c1cde1241b1cbffd5a9f14b20d4163f86ed85001,AVAILABLE,Firmware source
+GitHub Run,LEDE direct-LZMA,diablomike20/Belkin-F9K1103-Firmware,36964149495,7ce3aa38ab4781bbe9a7f24885879702c1fe6bc1,SUCCESS,Alternate
+GitHub Artifact,LEDE direct-LZMA,diablomike20/Belkin-F9K1103-Firmware,11210308702,efedf340019c29817991cec2a87bc42d8434a973b4155675d68828bbf59db68d,AVAILABLE,Firmware source
+GitHub Run,F9K1103 OpenWrt 23.05.5,diablomike20/Belkin-F9K1103-Firmware,36031900371,b110d75fac271c06fe2df2abbd8185a25c5c4db5,SUCCESS,Fallback/reference
+GitHub Artifact,F9K1103 OpenWrt 23.05.5,diablomike20/Belkin-F9K1103-Firmware,10824752986,32354e300432f751f7a5b7947260b6e6c62eaa94ba7423e854746e7ded0f6541,AVAILABLE,Firmware source
+GitHub Run,F9K1103 ImmortalWrt 18.06,diablomike20/Belkin-F9K1103-Firmware,36031917929,1e6dcc5216daed5d750c73824ee3688194b5de2e,SUCCESS,Fallback/reference
+GitHub Artifact,F9K1103 ImmortalWrt 18.06,diablomike20/Belkin-F9K1103-Firmware,10826192961,849e1478e42d3ad5e9fa1e6f489949a866cbb4f47fb7e328416068d951f6c84e,AVAILABLE,Firmware source
+GitHub Run,Belkin Cudy donor audit,diablomike20/Belkin-F9K1103-Firmware,36957672696,3dbba5fd2e7629c7ec20ba636ca7260c727d6dc6,SUCCESS,Donor corpus
+GitHub Artifact,Belkin Cudy donor audit,diablomike20/Belkin-F9K1103-Firmware,11206815616,67faaafe219143ec262d06419b815a819e23fb6ae7b67826bf927e096e3ca8b1,AVAILABLE,Donor corpus
+GitHub Artifact,FU7 clean master,diablomike20/Website-downloader,11068611598,43141683327d5332ea7c65fb8303e2663b4212e0e5992a4a22375f04c47a9729,AVAILABLE,P2/beta firmware lineage
+GitHub Artifact,FU7 intermediary clean,diablomike20/Website-downloader,11067574831,aed2935e21a3dadfc912eebc61b0a04516b4aa6a2b44b0fac3f28f6414c6194b,AVAILABLE,OpenWrt intermediary corpus
+FU8 Checkpoint,CP10,local/project,fu_8-STATIC-P0-CHECKPOINT-10.zip,1667c1453a1775a8880a80ed7b6e1ac336a02d7e80809d14694423ba382f00d4,VERIFIED,R25/C200P engineering correlation
+FU8 Checkpoint,CP11,local/project,fu_8-STATIC-P0-CHECKPOINT-11.zip,9edbc0af238c71120cbaafbcb6c10ea1bd3705c2b4eda2fbeb83f27e50a37e87,VERIFIED,Caller topology
+FU8 Checkpoint,CP12,local/project,fu_8-STATIC-P0-CHECKPOINT-12.zip,1b0440929e21b14a4145e4d1f84bbccb4ef2c4ba15e8d72cb935bca2b2dd4420,VERIFIED,Management dependency
+FU8 Checkpoint,CP13,local/project,fu_8-STATIC-P0-CHECKPOINT-13.zip,9fa4de14601e9fad7cf0b8485ff36d32c958638b24cddb8c30571473e2854139,VERIFIED,Auth/trust boundary
+FU8 Checkpoint,CP14,local/project,fu_8-STATIC-P0-CHECKPOINT-14.zip,57569d757cad79fe53390c4083b939a0320aa3741636f369046dccb1f1750767,VERIFIED,Exposure/internal callers
+Integration Artifact,V69 Truth-04,OpenWrt23 project,RE-LT500D-V69-WIP-LEDE-DASHBOARD-TRUTH-04.zip,e8e2f65fedb5d30a445a221f6f868c4fc50b861a9c441693d9ea4bf5932c36e0,CURRENT_KNOWN,Separate frontend/integration branch
