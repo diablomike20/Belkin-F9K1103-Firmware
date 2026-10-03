@@ -1,0 +1,7 @@
+CHECKPOINT,PRIMARY_PURPOSE,ZIP,SHA256,KEY_STATUS
+FU8-CP09,C200P/P2/private-beta/static P0 consolidation,fu_8-STATIC-P0-CHECKPOINT-09.zip,0e94fd1bf1eda67d7a03b934ccac22e0ee263ddefd8847b4037d1b7349e35cf5,VERIFIED
+FU8-CP10,R25-C200P engineering correlation and R25-family maintenance sequence,fu_8-STATIC-P0-CHECKPOINT-10.zip,1667c1453a1775a8880a80ed7b6e1ac336a02d7e80809d14694423ba382f00d4,VERIFIED
+FU8-CP11,R25 caller topology / trust-boundary separation,fu_8-STATIC-P0-CHECKPOINT-11.zip,9edbc0af238c71120cbaafbcb6c10ea1bd3705c2b4eda2fbeb83f27e50a37e87,VERIFIED
+FU8-CP12,LuCI-cmagent-cmsd-hcshd management dependency map,fu_8-STATIC-P0-CHECKPOINT-12.zip,1b0440929e21b14a4145e4d1f84bbccb4ef2c4ba15e8d72cb935bca2b2dd4420,VERIFIED
+FU8-CP13,JWT/broker/cmsd/hcshd trust boundary and RSA anchor map,fu_8-STATIC-P0-CHECKPOINT-13.zip,9fa4de14601e9fad7cf0b8485ff36d32c958638b24cddb8c30571473e2854139,VERIFIED
+FU8-CP14,Management exposure/firewall and first-party internal callers,fu_8-STATIC-P0-CHECKPOINT-14.zip,57569d757cad79fe53390c4083b939a0320aa3741636f369046dccb1f1750767,VERIFIED
