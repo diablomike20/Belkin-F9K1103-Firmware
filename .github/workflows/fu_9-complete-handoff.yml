@@ -1,0 +1,63 @@
+name: FU9 complete handoff documentation
+
+on:
+  push:
+    branches:
+      - fu9-handoff
+    paths:
+      - ".github/workflows/fu_9-complete-handoff.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fu9-handoff
+          fetch-depth: 0
+
+      - name: Assemble self-contained handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="Firmware-Unlock-9-COMPLETE-HANDOFF"
+          mkdir -p "$OUT/documentation" "$OUT/belkin-lede-source" "$OUT/workflows" "$OUT/repository-context"
+
+          cp -a handoff/firmware-unlock-9/. "$OUT/documentation/"
+          cp -a firmware/f9k1103-lede-17.01.5/. "$OUT/belkin-lede-source/"
+          cp -a .github/workflows/build-f9k1103-lede-17.01.5.yml "$OUT/workflows/" || true
+          cp -a README.md "$OUT/repository-context/Belkin-F9K1103-Firmware-README.md" || true
+
+          git log --all --date=iso-strict --pretty=format:'%H%x09%ad%x09%D%x09%s' > "$OUT/repository-context/GIT-HISTORY.tsv"
+          git branch -a -vv > "$OUT/repository-context/GIT-BRANCHES.txt"
+          git rev-parse HEAD > "$OUT/repository-context/HANDOFF-BRANCH-HEAD.txt"
+
+          printf '%s\n'             "Firmware Unlock 9 complete successor handoff"             "Primary task: Belkin F9K1103 v1 native LEDE 17.01.5 physical proof, then Cudy userspace port."             "Read documentation/README-FIRST.md first."             "The separate Firmware-Unlock-9-ALL-FIRMWARE.zip contains firmware binaries and is intentionally not nested here."             > "$OUT/START-HERE.txt"
+
+          find "$OUT" -type f -print0 | sort -z | xargs -0 sha256sum > "$OUT/SHA256SUMS.txt"
+          {
+            echo 'path,size_bytes,sha256'
+            while IFS= read -r line; do
+              h="${line%% *}"
+              p="${line#*  }"
+              s=$(stat -c '%s' "$p")
+              printf '"%s",%s,%s\n' "${p#$OUT/}" "$s" "$h"
+            done < "$OUT/SHA256SUMS.txt"
+          } > "$OUT/HANDOFF-MANIFEST.csv"
+
+          zip -9 -r Firmware-Unlock-9-COMPLETE-HANDOFF.zip "$OUT"
+          sha256sum Firmware-Unlock-9-COMPLETE-HANDOFF.zip > Firmware-Unlock-9-COMPLETE-HANDOFF.zip.sha256
+          unzip -t Firmware-Unlock-9-COMPLETE-HANDOFF.zip > Firmware-Unlock-9-COMPLETE-HANDOFF.ziptest.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Firmware-Unlock-9-COMPLETE-HANDOFF
+          path: |
+            Firmware-Unlock-9-COMPLETE-HANDOFF.zip
+            Firmware-Unlock-9-COMPLETE-HANDOFF.zip.sha256
+            Firmware-Unlock-9-COMPLETE-HANDOFF.ziptest.txt
+          compression-level: 0
