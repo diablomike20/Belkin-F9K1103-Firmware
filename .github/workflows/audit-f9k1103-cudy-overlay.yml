@@ -70,6 +70,37 @@ jobs:
 
           python3 "$GITHUB_WORKSPACE/tools/audit-f9k1103-cudy-overlay.py" "$ROOT" "$O"
 
+          # Preserve printable-string evidence from the exact donor files that
+          # define runtime contracts we must replace on Belkin.
+          mkdir -p "$O/contract-strings"
+          for rel in \
+            usr/lib/lua/mcore.lua \
+            usr/lib/lua/luci/description.lua \
+            usr/lib/lua/luci/gui.lua \
+            usr/lib/lua/luci/dispatcher.lua \
+            usr/lib/lua/luci/controller/index.lua \
+            usr/lib/lua/luci/controller/network.lua \
+            usr/lib/lua/luci/controller/system.lua \
+            usr/lib/lua/luci/apprpc/devices.lua \
+            usr/lib/lua/luci/apprpc/system.lua \
+            usr/lib/lua/luci/apprpc/qsetup.lua \
+            usr/lib/lua/luci/model/cbi/devices/devlist.lua \
+            usr/lib/lua/luci/model/cbi/devices/status.lua \
+            usr/lib/lua/luci/model/cbi/network/summary.lua \
+            usr/lib/lua/luci/model/cbi/system/status.lua \
+            usr/lib/lua/luci/view/themes/bootstrap/footer.htm \
+            usr/lib/lua/luci/view/themes/bootstrap/sysauth.htm
+          do
+            if [ -f "$ROOT/$rel" ]; then
+              outname="$(printf '%s' "$rel" | tr '/' '_').strings.txt"
+              strings -a -n 3 "$ROOT/$rel" > "$O/contract-strings/$outname"
+            fi
+          done
+          find "$ROOT/usr/lib/lua" -maxdepth 2 -type f -printf '%P\n' | sort > "$O/LUA-TOPLEVEL-INVENTORY.txt"
+          if [ -f "$ROOT/usr/lib/opkg/status" ]; then
+            awk '/^Package:/{p=$2}/^Version:/{print p "\t" $2}' "$ROOT/usr/lib/opkg/status" | sort > "$O/DONOR-PACKAGES.tsv"
+          fi
+
           mkdir -p "$W/overlay/usr/lib/lua/luci" "$W/overlay/www"
           rsync -a --exclude='*.so' "$ROOT/usr/lib/lua/luci/" "$W/overlay/usr/lib/lua/luci/"
           rsync -a "$ROOT/www/" "$W/overlay/www/"
