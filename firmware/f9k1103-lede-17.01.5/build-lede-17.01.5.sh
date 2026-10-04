@@ -72,6 +72,33 @@ rsync -a "$DONOR_DIR/rootfs/www/" files/www/
 # exist in the common Cudy tree.
 rm -f files/usr/lib/lua/luci/apprpc/cellular.lua
 rm -f files/usr/lib/lua/luci/model/cbi/network/dtu.lua
+rm -f files/usr/lib/lua/luci/model/cbi/diag/gcom.lua
+rm -f files/usr/lib/lua/luci/controller/cwmp.lua
+rm -f files/usr/lib/lua/luci/model/cbi/cwmp.lua
+
+# F9K1103-native compatibility modules for Cudy userspace contracts.
+mkdir -p files/usr/lib/lua files/usr/bin files/etc/uci-defaults files/etc/config
+cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/cudy-port/mcore.lua" \
+   files/usr/lib/lua/mcore.lua
+cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/cudy-port/bdinfo" \
+   files/usr/bin/bdinfo
+chmod 0755 files/usr/bin/bdinfo
+cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/cudy-port/95-f9k1103-cudy-runtime" \
+   files/etc/uci-defaults/95-f9k1103-cudy-runtime
+chmod 0755 files/etc/uci-defaults/95-f9k1103-cudy-runtime
+
+cat > files/etc/config/cmagent <<'EOF_CMAGENT'
+config mqtt 'mqtt'
+        option disabled '1'
+        option broker ''
+EOF_CMAGENT
+
+cat > files/etc/config/cmsd <<'EOF_CMSD'
+config cloud 'cloud'
+        option enabled '0'
+EOF_CMSD
+
+echo '2.4.23-F9K1103-Cudy-WIP02' > files/etc/rom_version
 
 # Never allow architecture-specific executables/shared libraries into this
 # first port stage. Native LuCI C modules (for example ip.so/jsonc.so) are
@@ -83,23 +110,10 @@ if find files/usr/lib/lua/luci files/www -type f -print0 | xargs -0 file | grep 
   exit 1
 fi
 
-# Cudy feature resolver compatibility identity.  This affects the Cudy UI
-# capability registry only; kernel/ramips board identity remains f9k1103.
-mkdir -p files/etc/uci-defaults
-cat > files/etc/uci-defaults/95-f9k1103-cudy-ui <<'EOF_CUDY'
-#!/bin/sh
-uci -q get system.board >/dev/null || uci set system.board=board
-uci set system.board.type='R26'
-uci set system.board.target='F9K1103'
-uci commit system
-exit 0
-EOF_CUDY
-chmod 0755 files/etc/uci-defaults/95-f9k1103-cudy-ui
-
 # Record exactly what entered the image.
 (
   cd files
-  find usr/lib/lua/luci www etc/uci-defaults -type f -print0 | sort -z | xargs -0 sha256sum
+  find usr/lib/lua/luci usr/lib/lua/mcore.lua usr/bin/bdinfo www etc/uci-defaults etc/config -type f -print0 | sort -z | xargs -0 sha256sum
 ) > "$GITHUB_WORKSPACE/F9K1103-CUDY-OVERLAY-SHA256.txt"
 
 
@@ -220,9 +234,12 @@ uImage name: N750F9K1103VB
 Firmware partition: 0x50000 + 0x7a0000
 Cudy donor: WR1200V2 R26 2.4.23
 Cudy donor ZIP SHA256: def1d4b8472b5fef4d0f13d337d6c2f11127d14ef6bd7100780dbac0115aa35c
-Cudy overlay: LuCI + www only; donor ELF/kmods/boot/network defaults excluded
+Cudy overlay: LuCI + www; donor ELF/kmods/boot/network defaults excluded
+Cudy compatibility: target-native mcore.lua + read-only bdinfo shim
+Cloud: cmagent/cmsd disabled; vendor daemons not imported
 Cellular/3G/4G/5G: excluded
-Status: CUDY-PORT-WIP-01 / build candidate / NOT hardware-runtime-verified
+TR-069/CWMP: excluded
+Status: CUDY-PORT-WIP-02 / build candidate / NOT hardware-runtime-verified
 EOF
 
 python3 - "$OUT" <<'PY'
