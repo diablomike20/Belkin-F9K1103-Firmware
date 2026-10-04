@@ -67,6 +67,37 @@ mkdir -p files/usr/lib/lua files/www
 rsync -a --exclude='*.so' "$DONOR_DIR/rootfs/usr/lib/lua/luci/" files/usr/lib/lua/luci/
 rsync -a "$DONOR_DIR/rootfs/www/" files/www/
 
+# Keep the Cudy presentation/controllers but use the known LEDE 17.01.5
+# authentication engine.  This removes the vendor crypt/bdinfo credential
+# dependency from the login path while preserving Cudy's "admin" web identity.
+cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/cudy-port/dispatcher-lede-cudy.lua" \
+   files/usr/lib/lua/luci/dispatcher.lua
+cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/cudy-port/sys-lede.lua" \
+   files/usr/lib/lua/luci/sys.lua
+cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/cudy-port/sysauth-lede-cudy.js" \
+   files/www/luci-static/bootstrap/js/sysauth.js
+
+# The donor login template expects Cudy board-lock state from its dispatcher.
+# WIP03 deliberately does not use that vendor authentication gate; expose a
+# fixed healthy local UI state to the template only.
+python3 - <<'PY_AUTH_TEMPLATE'
+from pathlib import Path
+for rel in (
+    "files/usr/lib/lua/luci/view/themes/bootstrap/sysauth.htm",
+    "files/usr/lib/lua/luci/view/themes/light/sysauth.htm",
+    "files/usr/lib/lua/luci/view/themes/dark/sysauth.htm",
+):
+    p=Path(rel)
+    if not p.exists() or p.is_symlink():
+        continue
+    s=p.read_text(errors="surrogateescape")
+    anchor='local broker = uci:get("cmagent", "mqtt", "broker")'
+    if anchor not in s:
+        raise SystemExit("Cudy sysauth template anchor missing: " + rel)
+    s=s.replace(anchor, anchor + "\nlocal bdinfo = true\nlocal flock = false", 1)
+    p.write_text(s, errors="surrogateescape")
+PY_AUTH_TEMPLATE
+
 # Explicitly exclude hardware/product-family features that do not belong on
 # the F9K1103.  WR1200 itself is non-cellular, but these framework residues
 # exist in the common Cudy tree.
@@ -98,7 +129,7 @@ config cloud 'cloud'
         option enabled '0'
 EOF_CMSD
 
-echo '2.4.23-F9K1103-Cudy-WIP02' > files/etc/rom_version
+echo '2.4.23-F9K1103-Cudy-WIP03' > files/etc/rom_version
 
 # Never allow architecture-specific executables/shared libraries into this
 # first port stage. Native LuCI C modules (for example ip.so/jsonc.so) are
@@ -121,12 +152,22 @@ sh -n files/usr/bin/bdinfo
 sh -n files/etc/uci-defaults/95-f9k1103-cudy-runtime
 if command -v luac5.1 >/dev/null 2>&1; then
   luac5.1 -p files/usr/lib/lua/mcore.lua
+  luac5.1 -p files/usr/lib/lua/luci/dispatcher.lua
+  luac5.1 -p files/usr/lib/lua/luci/sys.lua
 elif command -v luac >/dev/null 2>&1; then
   luac -p files/usr/lib/lua/mcore.lua
+  luac -p files/usr/lib/lua/luci/dispatcher.lua
+  luac -p files/usr/lib/lua/luci/sys.lua
 else
-  echo "ERROR: host Lua compiler unavailable for mcore syntax gate" >&2
+  echo "ERROR: host Lua compiler unavailable for WIP03 syntax gate" >&2
   exit 1
 fi
+grep -q 'checkuser = (user == "admin") and "root" or user' files/usr/lib/lua/luci/dispatcher.lua
+grep -q 'nixio.crypt(pass, pwh)' files/usr/lib/lua/luci/sys.lua
+! grep -q '/admin/get_token' files/www/luci-static/bootstrap/js/sysauth.js
+! grep -q 'crypt -ea' files/usr/lib/lua/luci/dispatcher.lua
+! grep -q 'crypt -da' files/usr/lib/lua/luci/dispatcher.lua
+grep -q 'local bdinfo = true' files/usr/lib/lua/luci/view/themes/bootstrap/sysauth.htm
 for forbidden in \
   files/usr/lib/lua/luci/controller/cwmp.lua \
   files/usr/lib/lua/luci/model/cbi/cwmp.lua \
@@ -255,7 +296,11 @@ ROOT_BUILT="${MCORE_BUILT%/usr/lib/lua/mcore.lua}"
 test -x "$ROOT_BUILT/usr/bin/bdinfo"
 grep -aq 'F9K1103 Cudy compatibility layer' "$ROOT_BUILT/usr/lib/lua/mcore.lua"
 grep -aq '2025 Shenzhen Cudy Technology Co., Ltd.' "$ROOT_BUILT/usr/lib/lua/luci/view/themes/bootstrap/footer.htm"
-grep -aq '2.4.23-F9K1103-Cudy-WIP02' "$ROOT_BUILT/etc/rom_version"
+grep -aq '2.4.23-F9K1103-Cudy-WIP03' "$ROOT_BUILT/etc/rom_version"
+grep -aq 'checkuser = (user == "admin") and "root" or user' "$ROOT_BUILT/usr/lib/lua/luci/dispatcher.lua"
+grep -aq 'nixio.crypt(pass, pwh)' "$ROOT_BUILT/usr/lib/lua/luci/sys.lua"
+grep -aq 'local bdinfo = true' "$ROOT_BUILT/usr/lib/lua/luci/view/themes/bootstrap/sysauth.htm"
+! grep -aq '/admin/get_token' "$ROOT_BUILT/www/luci-static/bootstrap/js/sysauth.js"
 for forbidden in \
   "$ROOT_BUILT/usr/lib/lua/luci/controller/cwmp.lua" \
   "$ROOT_BUILT/usr/lib/lua/luci/model/cbi/cwmp.lua" \
@@ -289,10 +334,12 @@ Cudy donor: WR1200V2 R26 2.4.23
 Cudy donor ZIP SHA256: def1d4b8472b5fef4d0f13d337d6c2f11127d14ef6bd7100780dbac0115aa35c
 Cudy overlay: LuCI + www; donor ELF/kmods/boot/network defaults excluded
 Cudy compatibility: target-native mcore.lua + read-only bdinfo shim
+Authentication: Cudy admin UX -> LEDE native root password verifier
+Vendor crypt auth dependency: excluded
 Cloud: cmagent/cmsd disabled; vendor daemons not imported
 Cellular/3G/4G/5G: excluded
 TR-069/CWMP: excluded
-Status: CUDY-PORT-WIP-02 / build candidate / NOT hardware-runtime-verified
+Status: CUDY-PORT-WIP-03 / first hardware-test candidate pending static audit
 EOF
 
 python3 - "$OUT" <<'PY'
