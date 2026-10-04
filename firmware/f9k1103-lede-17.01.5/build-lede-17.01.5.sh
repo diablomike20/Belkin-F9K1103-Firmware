@@ -72,8 +72,9 @@ rsync -a "$DONOR_DIR/rootfs/www/" files/www/
 # dependency from the login path while preserving Cudy's "admin" web identity.
 cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/cudy-port/dispatcher-lede-cudy.lua" \
    files/usr/lib/lua/luci/dispatcher.lua
-cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/cudy-port/sys-lede.lua" \
-   files/usr/lib/lua/luci/sys.lua
+# Keep donor luci.sys: Cudy controllers depend on its extended network/switch
+# helpers. Its standard user.checkpasswd API remains available for the patched
+# LEDE dispatcher.
 cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/cudy-port/sysauth-lede-cudy.js" \
    files/www/luci-static/bootstrap/js/sysauth.js
 
@@ -153,17 +154,16 @@ sh -n files/etc/uci-defaults/95-f9k1103-cudy-runtime
 if command -v luac5.1 >/dev/null 2>&1; then
   luac5.1 -p files/usr/lib/lua/mcore.lua
   luac5.1 -p files/usr/lib/lua/luci/dispatcher.lua
-  luac5.1 -p files/usr/lib/lua/luci/sys.lua
 elif command -v luac >/dev/null 2>&1; then
   luac -p files/usr/lib/lua/mcore.lua
   luac -p files/usr/lib/lua/luci/dispatcher.lua
-  luac -p files/usr/lib/lua/luci/sys.lua
 else
   echo "ERROR: host Lua compiler unavailable for WIP03 syntax gate" >&2
   exit 1
 fi
 grep -q 'checkuser = (user == "admin") and "root" or user' files/usr/lib/lua/luci/dispatcher.lua
-grep -q 'nixio.crypt(pass, pwh)' files/usr/lib/lua/luci/sys.lua
+strings -a files/usr/lib/lua/luci/sys.lua | grep -q 'checkpasswd'
+strings -a files/usr/lib/lua/luci/sys.lua | grep -q 'crypt'
 ! grep -q '/admin/get_token' files/www/luci-static/bootstrap/js/sysauth.js
 ! grep -q 'crypt -ea' files/usr/lib/lua/luci/dispatcher.lua
 ! grep -q 'crypt -da' files/usr/lib/lua/luci/dispatcher.lua
@@ -298,7 +298,8 @@ grep -aq 'F9K1103 Cudy compatibility layer' "$ROOT_BUILT/usr/lib/lua/mcore.lua"
 grep -aq '2025 Shenzhen Cudy Technology Co., Ltd.' "$ROOT_BUILT/usr/lib/lua/luci/view/themes/bootstrap/footer.htm"
 grep -aq '2.4.23-F9K1103-Cudy-WIP03' "$ROOT_BUILT/etc/rom_version"
 grep -aq 'checkuser = (user == "admin") and "root" or user' "$ROOT_BUILT/usr/lib/lua/luci/dispatcher.lua"
-grep -aq 'nixio.crypt(pass, pwh)' "$ROOT_BUILT/usr/lib/lua/luci/sys.lua"
+strings -a "$ROOT_BUILT/usr/lib/lua/luci/sys.lua" | grep -q 'checkpasswd'
+strings -a "$ROOT_BUILT/usr/lib/lua/luci/sys.lua" | grep -q 'crypt'
 grep -aq 'local bdinfo = true' "$ROOT_BUILT/usr/lib/lua/luci/view/themes/bootstrap/sysauth.htm"
 ! grep -aq '/admin/get_token' "$ROOT_BUILT/www/luci-static/bootstrap/js/sysauth.js"
 for forbidden in \
@@ -334,7 +335,7 @@ Cudy donor: WR1200V2 R26 2.4.23
 Cudy donor ZIP SHA256: def1d4b8472b5fef4d0f13d337d6c2f11127d14ef6bd7100780dbac0115aa35c
 Cudy overlay: LuCI + www; donor ELF/kmods/boot/network defaults excluded
 Cudy compatibility: target-native mcore.lua + read-only bdinfo shim
-Authentication: Cudy admin UX -> LEDE native root password verifier
+Authentication: Cudy admin UX -> LEDE dispatcher -> donor-compatible luci.sys root password verifier
 Vendor crypt auth dependency: excluded
 Cloud: cmagent/cmsd disabled; vendor daemons not imported
 Cellular/3G/4G/5G: excluded
