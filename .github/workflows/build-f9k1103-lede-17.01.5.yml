@@ -10,6 +10,7 @@ on:
       - lede-17.01.5-gpl-corrected
       - f9k1103-cudy-port-wip01
       - f9k1103-cudy-port-wip02
+      - f9k1103-cudy-port-wip03
     paths:
       - '.github/workflows/build-f9k1103-lede-17.01.5.yml'
       - 'firmware/f9k1103-lede-17.01.5/**'
@@ -44,7 +45,7 @@ jobs:
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
-          name: F9K1103-v1-LEDE-17.01.5-CUDY-PORT-WIP02
+          name: F9K1103-v1-LEDE-17.01.5-CUDY-PORT-WIP03
           path: out-f9k1103-lede-17.01.5/
           if-no-files-found: error
           compression-level: 0
