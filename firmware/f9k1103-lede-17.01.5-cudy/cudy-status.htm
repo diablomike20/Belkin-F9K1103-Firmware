@@ -1,0 +1,86 @@
+<%#
+ F9K1103 LEDE 17.01.5 Cudy Firmware
+ Native-backend dashboard inspired by the Cudy donor widget architecture.
+-%>
+<%+header%>
+<%
+    local adapter = require "luci.f9k1103_adapter"
+    local disp = require "luci.dispatcher"
+    local s = adapter.snapshot()
+    local function yn(v) return v and "Online" or "Offline" end
+    local function en(v) return v and "Enabled" or "Disabled" end
+-%>
+
+<div class="cudy-dashboard">
+    <div class="cudy-dashboard-title">
+        <h2>System Status</h2>
+        <div class="cudy-dashboard-sub"><%=pcdata(s.board.model)%> · <%=pcdata(s.board.release)%></div>
+    </div>
+
+    <div class="cudy-card-grid">
+        <div class="cudy-card">
+            <div class="cudy-card-title">Internet</div>
+            <div class="cudy-card-state <%=s.wan.up and "ok" or "off"%>"><%=yn(s.wan.up)%></div>
+            <dl>
+                <dt>Protocol</dt><dd><%=pcdata(s.wan.proto)%></dd>
+                <dt>Interface</dt><dd><%=pcdata(s.wan.device)%></dd>
+                <dt>IP Address</dt><dd><%=pcdata(s.wan.ipaddr)%></dd>
+                <dt>Gateway</dt><dd><%=pcdata(s.wan.gateway)%></dd>
+            </dl>
+            <a class="cudy-more" href="<%=disp.build_url("admin/network/network/wan")%>">More Details</a>
+        </div>
+
+        <div class="cudy-card">
+            <div class="cudy-card-title">LAN</div>
+            <div class="cudy-card-state ok">Ready</div>
+            <dl>
+                <dt>Interface</dt><dd><%=pcdata(s.lan.device)%></dd>
+                <dt>IP Address</dt><dd><%=pcdata(s.lan.ipaddr)%></dd>
+                <dt>Netmask</dt><dd><%=pcdata(s.lan.netmask)%></dd>
+                <dt>Hardware</dt><dd>RTL8367R-VB</dd>
+            </dl>
+            <a class="cudy-more" href="<%=disp.build_url("admin/network/network/lan")%>">More Details</a>
+        </div>
+
+        <% for _, r in ipairs(s.radios) do %>
+        <div class="cudy-card">
+            <div class="cudy-card-title">Wireless <%=pcdata(r.band)%></div>
+            <div class="cudy-card-state <%=r.enabled and "ok" or "off"%>"><%=en(r.enabled)%></div>
+            <dl>
+                <dt>SSID</dt><dd><%=pcdata(r.ssid)%></dd>
+                <dt>Radio</dt><dd><%=pcdata(r.name)%></dd>
+                <dt>Mode</dt><dd><%=pcdata(r.hwmode)%></dd>
+                <dt>Channel</dt><dd><%=pcdata(r.channel)%></dd>
+            </dl>
+            <a class="cudy-more" href="<%=disp.build_url("admin/network/wireless")%>">More Details</a>
+        </div>
+        <% end %>
+
+        <div class="cudy-card">
+            <div class="cudy-card-title">System</div>
+            <div class="cudy-card-state ok">Running</div>
+            <dl>
+                <dt>Hostname</dt><dd><%=pcdata(s.board.hostname)%></dd>
+                <dt>System</dt><dd><%=pcdata(s.board.system)%></dd>
+                <dt>Kernel</dt><dd><%=pcdata(s.board.kernel)%></dd>
+                <dt>Cellular</dt><dd>Not present</dd>
+            </dl>
+            <a class="cudy-more" href="<%=disp.build_url("admin/status/overview")%>">More Details</a>
+        </div>
+    </div>
+
+    <div class="cudy-actions">
+        <a href="<%=disp.build_url("admin/network/network")%>">Quick Setup</a>
+        <a href="<%=disp.build_url("admin/network/wireless")%>">Wireless</a>
+        <a href="<%=disp.build_url("admin/network/network")%>">Network</a>
+        <a href="<%=disp.build_url("admin/system/system")%>">Advanced Settings</a>
+        <a href="<%=disp.build_url("admin/network/diagnostics")%>">Diagnostic Tools</a>
+    </div>
+
+    <div class="cudy-port-note">
+        Cudy router UI layer on native Belkin F9K1103 LEDE 17.01.5 hardware support.
+        Cellular/SIM/SMS components are intentionally excluded.
+    </div>
+</div>
+
+<%+footer%>
