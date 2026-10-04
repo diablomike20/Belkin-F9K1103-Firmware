@@ -65,7 +65,7 @@ unsquashfs -no-progress -d "$DONOR_DIR/rootfs" "$DONOR_DIR/rootfs.squashfs" >/de
 
 mkdir -p files/usr/lib/lua files/www
 rsync -a --exclude='*.so' "$DONOR_DIR/rootfs/usr/lib/lua/luci/" files/usr/lib/lua/luci/
-rsync -a "$DONOR_DIR/rootfs/www/" files/www/
+rsync -a --exclude='cgi-bin/luci' "$DONOR_DIR/rootfs/www/" files/www/
 
 # Keep the Cudy presentation/controllers but use the known LEDE 17.01.5
 # authentication engine.  This removes the vendor crypt/bdinfo credential
@@ -147,6 +147,13 @@ fi
   cd files
   find usr/lib/lua/luci usr/lib/lua/mcore.lua usr/bin/bdinfo www etc/uci-defaults etc/config -type f -print0 | sort -z | xargs -0 sha256sum
 ) > "$GITHUB_WORKSPACE/F9K1103-CUDY-OVERLAY-SHA256.txt"
+
+# Donor web presentation is allowed, but the LuCI CGI launcher must remain
+# target-native from the LEDE luci-base package.
+[ ! -e files/www/cgi-bin/luci ] || {
+  echo "ERROR: donor www/cgi-bin/luci entered files overlay" >&2
+  exit 1
+}
 
 echo "=== Cudy WIP02 pre-build gate ==="
 sh -n files/usr/bin/bdinfo
