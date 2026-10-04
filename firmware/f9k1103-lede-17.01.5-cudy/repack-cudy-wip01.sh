@@ -103,64 +103,60 @@ cp "$PORT_DIR/cudy-f9k1103-legacy.css" "$DST/cudy-f9k1103.css"
 echo "[5/10] Adapt legacy LEDE LuCI theme without Cudy bdinfo/auth dependency"
 python3 - "$WORK/native-root" <<'PY'
 from pathlib import Path
-import sys
+import re, sys
 root=Path(sys.argv[1])
 
-def must_replace(path, old, new):
-    p=root/path
-    s=p.read_text()
-    if old not in s:
-        raise SystemExit(f'anchor not found: {path}: {old!r}')
-    p.write_text(s.replace(old,new,1))
-
-header=Path('usr/lib/lua/luci/view/themes/bootstrap/header.htm')
-must_replace(
-    header,
-    '<link rel="stylesheet" href="<%=media%>/cascade.css">',
-    '<link rel="stylesheet" href="<%=media%>/cascade.css">\n'
-    '\t\t<link rel="stylesheet" href="<%=media%>/css/font-awesome.min.css">\n'
+header=root/'usr/lib/lua/luci/view/themes/bootstrap/header.htm'
+hs=header.read_text()
+links=(
+    '\n\t\t<link rel="stylesheet" href="<%=media%>/css/font-awesome.min.css">\n'
     '\t\t<link rel="stylesheet" href="<%=media%>/css/iconfont.css">\n'
-    '\t\t<link rel="stylesheet" href="<%=media%>/cudy-f9k1103.css">'
+    '\t\t<link rel="stylesheet" href="<%=media%>/cudy-f9k1103.css">\n'
 )
-must_replace(
-    header,
-    '<body class="lang_<%=luci.i18n.context.lang%> <%- if node then %><%= striptags( node.title ) %><%- end %>">',
-    '<body class="cudy-f9k1103 lang_<%=luci.i18n.context.lang%> <%- if node then %><%= striptags( node.title ) %><%- end %>">'
-)
-must_replace(
-    header,
-    '<a class="brand" href="#"><%=boardinfo.hostname or "?"%></a>',
+if 'cudy-f9k1103.css' not in hs:
+    if '</head>' not in hs:
+        raise SystemExit('header </head> not found')
+    hs=hs.replace('</head>',links+'\t</head>',1)
+
+if 'cudy-f9k1103' not in hs:
+    hs,n=re.subn(r'<body\s+class="', '<body class="cudy-f9k1103 ', hs, count=1)
+    if n==0:
+        hs,n=re.subn(r'<body\b', '<body class="cudy-f9k1103"', hs, count=1)
+    if n==0:
+        raise SystemExit('header <body> not found')
+
+brand=(
     '<a class="brand cudy-brand" href="<%=luci.dispatcher.build_url("admin/status/overview")%>">'
     '<img src="<%=media%>/img/logo.png" alt="Cudy">'
     '<span>Cudy <span class="cudy-model">F9K1103</span></span></a>'
 )
+hs,n=re.subn(r'<a\s+class="brand"[^>]*>.*?</a>',brand,hs,count=1,flags=re.S)
+if n==0 and 'cudy-brand' not in hs:
+    raise SystemExit('LuCI brand anchor not found')
+header.write_text(hs)
 
-sysauth=Path('usr/lib/lua/luci/view/sysauth.htm')
-must_replace(
-    sysauth,
-    '<%+header%>\n\n<form method="post" action="<%=pcdata(luci.http.getenv("REQUEST_URI"))%>">',
-    '<%+header%>\n\n'
-    '<div class="cudy-login-head"><img src="<%=media%>/img/loginlogo.png" alt="Cudy">'
-    '<h2>F9K1103 Cudy Firmware</h2></div>\n'
-    '<form method="post" action="<%=pcdata(luci.http.getenv("REQUEST_URI"))%>">'
-)
+sysauth=root/'usr/lib/lua/luci/view/sysauth.htm'
+ss=sysauth.read_text()
+if 'cudy-login-head' not in ss:
+    marker='<%+header%>'
+    if marker not in ss:
+        raise SystemExit('sysauth header include not found')
+    ss=ss.replace(marker,marker+'\n<div class="cudy-login-head"><img src="<%=media%>/img/loginlogo.png" alt="Cudy"><h2>F9K1103 Cudy Firmware</h2></div>',1)
+sysauth.write_text(ss)
 
-footer=Path('usr/lib/lua/luci/view/themes/bootstrap/footer.htm')
-p=root/footer
-s=p.read_text()
-old='<a href="https://github.com/openwrt/luci">Powered by <%= ver.luciname %> (<%= ver.luciversion %>)</a> / <%= ver.distversion %>'
-if old not in s:
-    raise SystemExit('footer anchor not found')
-s=s.replace(old,
-    '<span>F9K1103 Cudy Firmware (community port)</span> / '
-    '<a href="https://github.com/openwrt/luci"><%= ver.luciname %> (<%= ver.luciversion %>)</a> / <%= ver.distversion %>',
-    1)
-p.write_text(s)
+footer=root/'usr/lib/lua/luci/view/themes/bootstrap/footer.htm'
+fs=footer.read_text()
+if 'community port' not in fs:
+    fs,n=re.subn(
+        r'(<footer[^>]*>)',
+        r'\1\n    <div class="cudy-port-mark">F9K1103 Cudy Firmware (community port)</div>',
+        fs,count=1,flags=re.S)
+    if n==0:
+        raise SystemExit('footer tag not found')
+footer.write_text(fs)
 
-# Brand marker without changing package/feed identity.
 (root/'etc/rom_version').write_text('F9K1103-CUDY-WIP-01-LEDE-17.01.5\n')
-marker=root/'etc/cudy_f9k1103_build'
-marker.write_text(
+(root/'etc/cudy_f9k1103_build').write_text(
     'project=F9K1103 LEDE 17.01.5 Cudy Firmware\n'
     'stage=CUDY-WIP-01\n'
     'cudy_donor=WR1200V2-R26-2.4.23-20251224-145945\n'
@@ -170,10 +166,9 @@ marker.write_text(
 
 rel=root/'etc/openwrt_release'
 if rel.exists():
-    t=rel.read_text()
     lines=[]
     replaced=False
-    for line in t.splitlines():
+    for line in rel.read_text().splitlines():
         if line.startswith('DISTRIB_DESCRIPTION='):
             lines.append("DISTRIB_DESCRIPTION='F9K1103 Cudy Firmware WIP-01 / LEDE 17.01.5'")
             replaced=True
