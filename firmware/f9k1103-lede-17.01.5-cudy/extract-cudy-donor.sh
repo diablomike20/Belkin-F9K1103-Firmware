@@ -42,7 +42,7 @@ Path(sys.argv[3]).write_bytes(src[off:])
 PY
 
 echo "[4/8] Extract SquashFS"
-unsquashfs -no-progress -d donor-root donor.squashfs >/dev/null
+sudo unsquashfs -no-progress -d donor-root donor.squashfs >/dev/null
 
 echo "[5/8] Basic truth"
 {
