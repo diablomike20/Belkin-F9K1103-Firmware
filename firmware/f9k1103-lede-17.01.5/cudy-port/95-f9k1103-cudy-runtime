@@ -54,6 +54,22 @@ for sec in $(uci -q show wireless 2>/dev/null | sed -n "s/^wireless\.\([^.=]*\)=
     fi
 done
 
+# LEDE 17.01.5 mac80211 honors wifi-iface.ifname. Make the actual AP netdev
+# names match the Cudy userspace contract, not only the UCI section names.
+if uci -q get wireless.wlan00 >/dev/null 2>&1; then
+    uci set wireless.wlan00.ifname='wlan00'
+    uci set wireless.wlan00.device='radio1'
+fi
+if uci -q get wireless.wlan10 >/dev/null 2>&1; then
+    uci set wireless.wlan10.ifname='wlan10'
+    uci set wireless.wlan10.device='radio0'
+fi
+
+# Metadata consumed by Cudy wireless models. Real capabilities still come from
+# the F9K1103 mac80211/iwinfo stack.
+uci -q get wireless.radio1 >/dev/null 2>&1 && uci set wireless.radio1.band='2g'
+uci -q get wireless.radio0 >/dev/null 2>&1 && uci set wireless.radio0.band='5g'
+
 uci commit system
 uci commit luci
 uci commit cmagent
