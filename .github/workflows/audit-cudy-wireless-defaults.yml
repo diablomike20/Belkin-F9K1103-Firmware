@@ -1,0 +1,52 @@
+name: Audit Cudy WR1200 wireless defaults
+
+on:
+  push:
+    branches:
+      - f9k1103-cudy-donor-audit
+    paths:
+      - '.github/workflows/audit-cudy-wireless-defaults.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    container:
+      image: ubuntu:22.04
+    timeout-minutes: 15
+    steps:
+      - run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates wget unzip squashfs-tools
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://www.cudy.com/cdn/shop/files/WR1200V2-R26-2.4.23-20251224-145945-flash.zip?v=10287497656812635253'
+          SHA='def1d4b8472b5fef4d0f13d337d6c2f11127d14ef6bd7100780dbac0115aa35c'
+          OFF=2583295
+          W="$GITHUB_WORKSPACE/_wd"
+          O="$GITHUB_WORKSPACE/out-wr1200-wireless"
+          mkdir -p "$W" "$O"
+          wget -qO "$W/donor.zip" "$URL"
+          echo "$SHA  $W/donor.zip" | sha256sum -c -
+          unzip -qo "$W/donor.zip" -d "$W"
+          BIN="$(find "$W" -maxdepth 1 -name '*-flash.bin' | head -n1)"
+          tail -c +$((OFF + 1)) "$BIN" > "$W/root.sqfs"
+          unsquashfs -no-progress -d "$W/root" "$W/root.sqfs" >/dev/null
+
+          cp "$W/root/etc/config/wireless" "$O/WR1200V2-2.4.23-WIRELESS.txt"
+          cp "$W/root/etc/board.json" "$O/WR1200V2-2.4.23-BOARD.json" 2>/dev/null || true
+          grep -RIna --binary-files=text -E "option (band|ifname)|config wifi-(device|iface)|wlan00|wlan10|radio0|radio1" \
+             "$W/root/etc/config/wireless" "$W/root/etc/board.json" 2>/dev/null > "$O/KEY-LINES.txt" || true
+      - run: |
+          cat out-wr1200-wireless/WR1200V2-2.4.23-WIRELESS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-WR1200V2-2.4.23-WIRELESS-DEFAULTS
+          path: out-wr1200-wireless/
+          if-no-files-found: error
+          compression-level: 0
