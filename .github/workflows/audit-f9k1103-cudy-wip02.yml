@@ -1,0 +1,42 @@
+name: Smoke F9K1103 Cudy WIP02 adapters
+
+on:
+  push:
+    branches:
+      - f9k1103-cudy-port-wip02
+    paths:
+      - '.github/workflows/audit-f9k1103-cudy-wip02.yml'
+      - 'firmware/f9k1103-lede-17.01.5/cudy-port/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-22.04
+    container:
+      image: ubuntu:22.04
+    timeout-minutes: 10
+    steps:
+      - name: Install syntax tools
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y lua5.1 dash
+      - uses: actions/checkout@v4
+      - name: Validate adapters
+        shell: bash
+        run: |
+          set -euo pipefail
+          P=firmware/f9k1103-lede-17.01.5/cudy-port
+          luac5.1 -p "$P/mcore.lua"
+          dash -n "$P/bdinfo"
+          dash -n "$P/95-f9k1103-cudy-runtime"
+          grep -q 'function devlist()' "$P/mcore.lua"
+          grep -q 'function devlist6()' "$P/mcore.lua"
+          grep -q 'function get_backhaul()' "$P/mcore.lua"
+          grep -q 'inbytes   = 0' "$P/mcore.lua"
+          grep -q 'outbytes  = 0' "$P/mcore.lua"
+          ! grep -Eq 'mtd (write|erase)|flash_erase|sysupgrade|reboot|ifdown|ifup' "$P/bdinfo"
+          ! grep -Eq 'curl|wget|nc |telnet|ssh ' "$P/bdinfo"
+          echo 'WIP02 adapter smoke: PASS'
