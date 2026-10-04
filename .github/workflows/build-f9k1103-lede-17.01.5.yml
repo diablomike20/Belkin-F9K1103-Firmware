@@ -9,6 +9,7 @@ on:
       - lede-17.01.5-clean-direct
       - lede-17.01.5-gpl-corrected
       - f9k1103-cudy-port-wip01
+      - f9k1103-cudy-port-wip02
     paths:
       - '.github/workflows/build-f9k1103-lede-17.01.5.yml'
       - 'firmware/f9k1103-lede-17.01.5/**'
@@ -18,7 +19,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: f9k1103-lede-17.01.5-clean-direct-build
+  group: f9k1103-lede-17.01.5-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -43,7 +44,7 @@ jobs:
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
-          name: F9K1103-v1-LEDE-17.01.5-CUDY-PORT-WIP01
+          name: F9K1103-v1-LEDE-17.01.5-CUDY-PORT-WIP02
           path: out-f9k1103-lede-17.01.5/
           if-no-files-found: error
           compression-level: 0
