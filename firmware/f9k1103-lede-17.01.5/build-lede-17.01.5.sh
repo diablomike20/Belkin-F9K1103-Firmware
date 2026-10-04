@@ -42,6 +42,65 @@ cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/110-findutils-glibc-change-w
 cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/125-e2fsprogs-glibc-sysmacros.patch" tools/e2fsprogs/patches/125-glibc-2.23-sysmacros.patch
 cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/120-bison-glibc-2.28.patch" tools/bison/patches/120-glibc-2.28-fseterr.patch
 
+# ---------------------------------------------------------------------------
+# Cudy userspace/UI donor layer (FU8-selected donor)
+# ---------------------------------------------------------------------------
+# Firmware-Unlock 8 established WR1200 V2 2.4.23 as the strongest modern
+# non-cellular Cudy router UI donor for the 2.4.x generation.  Import only
+# architecture-independent LuCI/UI files here.  Do NOT copy donor ELF files,
+# kernel modules, boot files, network defaults or cellular/modem components.
+DONOR_URL='https://www.cudy.com/cdn/shop/files/WR1200V2-R26-2.4.23-20251224-145945-flash.zip?v=10287497656812635253'
+DONOR_ZIP_SHA256='def1d4b8472b5fef4d0f13d337d6c2f11127d14ef6bd7100780dbac0115aa35c'
+DONOR_SQUASHFS_OFFSET=2583295
+DONOR_DIR="$WORKDIR/cudy-wr1200v2-2.4.23"
+
+mkdir -p "$DONOR_DIR"
+wget -qO "$DONOR_DIR/donor.zip" "$DONOR_URL"
+echo "$DONOR_ZIP_SHA256  $DONOR_DIR/donor.zip" | sha256sum -c -
+unzip -qo "$DONOR_DIR/donor.zip" -d "$DONOR_DIR"
+DONOR_BIN="$(find "$DONOR_DIR" -maxdepth 1 -type f -name '*-flash.bin' | head -n1)"
+[ -n "$DONOR_BIN" ] || { echo 'ERROR: WR1200 donor BIN missing' >&2; exit 1; }
+tail -c +$((DONOR_SQUASHFS_OFFSET + 1)) "$DONOR_BIN" > "$DONOR_DIR/rootfs.squashfs"
+unsquashfs -no-progress -d "$DONOR_DIR/rootfs" "$DONOR_DIR/rootfs.squashfs" >/dev/null
+
+mkdir -p files/usr/lib/lua files/www
+rsync -a "$DONOR_DIR/rootfs/usr/lib/lua/luci/" files/usr/lib/lua/luci/
+rsync -a "$DONOR_DIR/rootfs/www/" files/www/
+
+# Explicitly exclude hardware/product-family features that do not belong on
+# the F9K1103.  WR1200 itself is non-cellular, but these framework residues
+# exist in the common Cudy tree.
+rm -f files/usr/lib/lua/luci/apprpc/cellular.lua
+rm -f files/usr/lib/lua/luci/model/cbi/network/dtu.lua
+
+# Never allow architecture-specific executables/shared libraries into this
+# first port stage.  Fail closed if the selected overlay unexpectedly contains
+# ELF data.
+if find files/usr/lib/lua/luci files/www -type f -print0 | xargs -0 file | grep -q 'ELF '; then
+  echo 'ERROR: Cudy UI overlay unexpectedly contains ELF content' >&2
+  find files/usr/lib/lua/luci files/www -type f -print0 | xargs -0 file | grep 'ELF ' >&2 || true
+  exit 1
+fi
+
+# Cudy feature resolver compatibility identity.  This affects the Cudy UI
+# capability registry only; kernel/ramips board identity remains f9k1103.
+mkdir -p files/etc/uci-defaults
+cat > files/etc/uci-defaults/95-f9k1103-cudy-ui <<'EOF_CUDY'
+#!/bin/sh
+uci -q get system.board >/dev/null || uci set system.board=board
+uci set system.board.type='R26'
+uci set system.board.target='F9K1103'
+uci commit system
+exit 0
+EOF_CUDY
+chmod 0755 files/etc/uci-defaults/95-f9k1103-cudy-ui
+
+# Record exactly what entered the image.
+(
+  cd files
+  find usr/lib/lua/luci www etc/uci-defaults -type f -print0 | sort -z | xargs -0 sha256sum
+) > "$GITHUB_WORKSPACE/F9K1103-CUDY-OVERLAY-SHA256.txt"
+
 
 python3 - <<'PY'
 from pathlib import Path
@@ -147,6 +206,7 @@ make -j$(nproc) V=s
 
 cp -av bin/targets/ramips/rt3883/*f9k1103* "$OUT/" || true
 cp -av "$GITHUB_WORKSPACE/F9K1103-LEDE-17.01.5.patch" "$OUT/"
+cp -av "$GITHUB_WORKSPACE/F9K1103-CUDY-OVERLAY-SHA256.txt" "$OUT/"
 git rev-parse HEAD > "$OUT/LEDE_SOURCE_COMMIT.txt"
 
 cat > "$OUT/BUILD-INFO.txt" <<EOF
@@ -157,7 +217,11 @@ Target: ramips/rt3883
 DTS: F9K1103
 uImage name: N750F9K1103VB
 Firmware partition: 0x50000 + 0x7a0000
-Status: PORT-WIP / clean direct-LZMA build candidate / NOT hardware-runtime-verified
+Cudy donor: WR1200V2 R26 2.4.23
+Cudy donor ZIP SHA256: def1d4b8472b5fef4d0f13d337d6c2f11127d14ef6bd7100780dbac0115aa35c
+Cudy overlay: LuCI + www only; donor ELF/kmods/boot/network defaults excluded
+Cellular/3G/4G/5G: excluded
+Status: CUDY-PORT-WIP-01 / build candidate / NOT hardware-runtime-verified
 EOF
 
 python3 - "$OUT" <<'PY'
