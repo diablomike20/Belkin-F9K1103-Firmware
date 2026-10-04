@@ -43,6 +43,7 @@ PY
 
 echo "[4/8] Extract SquashFS"
 sudo unsquashfs -no-progress -d donor-root donor.squashfs >/dev/null
+sudo chown -R "$(id -u):$(id -g)" donor-root
 
 echo "[5/8] Basic truth"
 {
