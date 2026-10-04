@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/audit-f9k1103-cudy-wip02.yml'
       - 'firmware/f9k1103-lede-17.01.5/cudy-port/**'
+      - 'tools/test-f9k1103-mcore.lua'
   workflow_dispatch:
 
 permissions:
@@ -39,4 +40,5 @@ jobs:
           grep -q 'outbytes  = 0' "$P/mcore.lua"
           ! grep -Eq 'mtd (write|erase)|flash_erase|sysupgrade|reboot|ifdown|ifup' "$P/bdinfo"
           ! grep -Eq 'curl|wget|nc |telnet|ssh ' "$P/bdinfo"
+          lua5.1 tools/test-f9k1103-mcore.lua "$P/mcore.lua"
           echo 'WIP02 adapter smoke: PASS'
