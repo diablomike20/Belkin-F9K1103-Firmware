@@ -1,0 +1,20 @@
+#!/bin/sh
+# Local-only Cudy runtime identity for F9K1103.
+uci -q get system.board >/dev/null || uci set system.board=board
+uci set system.board.type='R26'
+uci set system.board.target='F9K1103'
+uci set system.board.model='Belkin F9K1103 Version 1.0'
+uci set system.board.rom='F9K1103'
+uci set system.board.workmode='router'
+
+uci -q get cmagent.mqtt >/dev/null || uci set cmagent.mqtt=mqtt
+uci set cmagent.mqtt.disabled='1'
+uci set cmagent.mqtt.broker=''
+
+uci -q get cmsd.cloud >/dev/null || uci set cmsd.cloud=cloud
+uci set cmsd.cloud.enabled='0'
+
+uci commit system
+uci commit cmagent
+uci commit cmsd
+exit 0
