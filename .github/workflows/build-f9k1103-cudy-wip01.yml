@@ -1,0 +1,56 @@
+name: Build F9K1103 LEDE 17.01.5 Cudy WIP-01
+
+on:
+  push:
+    branches:
+      - f9k1103-lede-17.01.5-cudy-port
+    paths:
+      - '.github/workflows/build-f9k1103-cudy-wip01.yml'
+      - 'firmware/f9k1103-lede-17.01.5-cudy/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: f9k1103-cudy-wip01
+  cancel-in-progress: true
+
+jobs:
+  repack:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install repack tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools unzip wget file
+
+      - name: Download BUILD_VERIFIED native F9K1103 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: F9K1103-v1-LEDE-17.01.5-PORT-WIP
+          path: base-native
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 37102439709
+
+      - name: Repack native LEDE rootfs with Cudy WIP-01 layer
+        run: bash firmware/f9k1103-lede-17.01.5-cudy/repack-cudy-wip01.sh
+
+      - name: Show validation
+        run: |
+          ls -lah out-f9k1103-cudy-wip01/
+          cat out-f9k1103-cudy-wip01/CUDY-WIP-01-STATIC-VALIDATION.txt
+          cat out-f9k1103-cudy-wip01/SHA256SUMS.txt
+
+      - name: Upload flashable Cudy checkpoint
+        uses: actions/upload-artifact@v4
+        with:
+          name: RE-F9K1103-LEDE-17.01.5-CUDY-WIP-01
+          path: out-f9k1103-cudy-wip01/
+          if-no-files-found: error
+          compression-level: 0
