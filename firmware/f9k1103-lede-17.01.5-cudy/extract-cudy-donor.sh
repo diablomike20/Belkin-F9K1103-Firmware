@@ -132,6 +132,12 @@ PY
 
 grep -E 'UI_LUA_CANDIDATE|SCRIPT_REVIEW|SEMANTICS_REFERENCE|EXCLUDE_CELLULAR|BLOCK_OPAQUE_ELF'   "$OUT/CUDY-PORT-MAP.csv" > "$OUT/CUDY-PORT-MAP-FOCUSED.csv" || true
 
+echo "[7b/8] Package portable source/UI review bundle"
+tar -czf "$OUT/PORTABLE-CANDIDATES.tar.gz" -C donor-root \
+  usr/lib/lua/luci \
+  www/luci-static \
+  2>/dev/null
+
 echo "[8/8] Dependency/string leads"
 grep -RIlE 'cellular|gcom|modem|sms|wwan|bdinfo|cmagent|cmsd|hcshd|softapd'   donor-root/usr/lib/lua/luci donor-root/www donor-root/etc/init.d 2>/dev/null   | sed 's#^donor-root##' | sort > "$OUT/HARDWARE-DEPENDENCY-LEADS.txt" || true
 
