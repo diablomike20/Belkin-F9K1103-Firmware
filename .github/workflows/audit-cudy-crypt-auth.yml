@@ -1,0 +1,112 @@
+name: Audit Cudy crypt auth helper
+
+on:
+  push:
+    branches:
+      - f9k1103-cudy-donor-audit
+    paths:
+      - '.github/workflows/audit-cudy-crypt-auth.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    container:
+      image: ubuntu:22.04
+    timeout-minutes: 20
+    steps:
+      - name: Install tools
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            ca-certificates wget unzip squashfs-tools file binutils \
+            binutils-mipsel-linux-gnu qemu-user-static xxd
+      - uses: actions/checkout@v4
+      - name: Extract donor and characterize crypt
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://www.cudy.com/cdn/shop/files/WR1200V2-R26-2.4.23-20251224-145945-flash.zip?v=10287497656812635253'
+          SHA='def1d4b8472b5fef4d0f13d337d6c2f11127d14ef6bd7100780dbac0115aa35c'
+          OFF=2583295
+          W="$GITHUB_WORKSPACE/_crypt_audit"
+          O="$GITHUB_WORKSPACE/out-cudy-crypt-audit"
+          rm -rf "$W" "$O"
+          mkdir -p "$W" "$O"
+          wget -qO "$W/donor.zip" "$URL"
+          echo "$SHA  $W/donor.zip" | sha256sum -c -
+          unzip -qo "$W/donor.zip" -d "$W"
+          BIN="$(find "$W" -maxdepth 1 -type f -name '*-flash.bin' | head -n1)"
+          tail -c +$((OFF + 1)) "$BIN" > "$W/rootfs.squashfs"
+          unsquashfs -no-progress -d "$W/rootfs" "$W/rootfs.squashfs" >/dev/null
+          ROOT="$W/rootfs"
+          CRYPT="$ROOT/usr/bin/crypt"
+
+          {
+            echo '=== FILE ==='
+            file "$CRYPT"
+            sha256sum "$CRYPT"
+            echo '=== DYNAMIC ==='
+            mipsel-linux-gnu-readelf -d "$CRYPT" || true
+            echo '=== SYMBOLS ==='
+            mipsel-linux-gnu-readelf -Ws "$CRYPT" || true
+            echo '=== STRINGS ==='
+            strings -a "$CRYPT"
+          } > "$O/CRYPT-STATIC.txt"
+
+          mipsel-linux-gnu-objdump -dr "$CRYPT" > "$O/CRYPT-DISASM.txt" || true
+
+          cp "$ROOT/www/luci-static/bootstrap/js/sysauth.js" "$O/SYSAUTH.js" 2>/dev/null || true
+          cp "$ROOT/etc/config/luci" "$O/LUCI-CONFIG.txt" 2>/dev/null || true
+
+          QEMU="$(command -v qemu-mipsel-static)"
+          {
+            echo "QEMU=$QEMU"
+            echo '=== crypt no args ==='
+            "$QEMU" -L "$ROOT" "$CRYPT" 2>&1 || true
+            echo '=== crypt -h ==='
+            "$QEMU" -L "$ROOT" "$CRYPT" -h 2>&1 || true
+            echo '=== crypt --help ==='
+            "$QEMU" -L "$ROOT" "$CRYPT" --help 2>&1 || true
+
+            for s in 'password123' 'abcdefgh' 'admin1234' '0123456789abcdef0123456789abcdef'; do
+              echo "=== INPUT:$s ==="
+              e1="$(printf '%s' "$s" | "$QEMU" -L "$ROOT" "$CRYPT" -ea 2>/dev/null || true)"
+              e2="$(printf '%s' "$s" | "$QEMU" -L "$ROOT" "$CRYPT" -ea 2>/dev/null || true)"
+              printf 'EA1_TEXT=%s\n' "$e1"
+              printf 'EA2_TEXT=%s\n' "$e2"
+              printf '%s' "$e1" | xxd -p | sed 's/^/EA1_HEX=/'
+              printf '%s' "$e2" | xxd -p | sed 's/^/EA2_HEX=/'
+              if [ -n "$e1" ]; then
+                d1="$(printf '%s' "$e1" | "$QEMU" -L "$ROOT" "$CRYPT" -da 2>/dev/null || true)"
+                printf 'DA_TEXT=%s\n' "$d1"
+                printf '%s' "$d1" | xxd -p | sed 's/^/DA_HEX=/'
+              fi
+            done
+
+            echo '=== explicit old auth decrypt path ==='
+            SAMPLE='00112233445566778899aabbccddeeff'
+            printf '%s' "$SAMPLE" | "$QEMU" -L "$ROOT" "$CRYPT" -d -n -l 256 \
+              -k 3172587963365a775a6a57476e43524e37353468334f5878467253613369734c 2>&1 || true
+          } > "$O/CRYPT-RUNTIME.txt"
+
+          {
+            echo '=== LDD-ish qemu loader trace ==='
+            QEMU_STRACE=1 "$QEMU" -L "$ROOT" "$CRYPT" -h 2>&1 || true
+          } > "$O/CRYPT-QEMU-STRACE.txt"
+
+      - name: Show result
+        run: |
+          cat out-cudy-crypt-audit/CRYPT-RUNTIME.txt
+          echo '--- sysauth client ---'
+          cat out-cudy-crypt-audit/SYSAUTH.js 2>/dev/null || true
+      - name: Upload audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: RE-F9K1103-CUDY-CRYPT-AUTH-AUDIT
+          path: out-cudy-crypt-audit/
+          if-no-files-found: error
+          compression-level: 0
