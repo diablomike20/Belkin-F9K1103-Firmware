@@ -1,21 +1,11 @@
 name: Build F9K1103 LEDE 17.01.5 Cudy WIP-01
 
 on:
-  push:
-    branches:
-      - f9k1103-lede-17.01.5-cudy-port
-    paths:
-      - '.github/workflows/build-f9k1103-cudy-wip01.yml'
-      - 'firmware/f9k1103-lede-17.01.5-cudy/**'
   workflow_dispatch:
 
 permissions:
   contents: read
   actions: read
-
-concurrency:
-  group: f9k1103-cudy-wip01
-  cancel-in-progress: true
 
 jobs:
   repack:
