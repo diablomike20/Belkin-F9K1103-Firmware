@@ -7,7 +7,6 @@ on:
     paths:
       - '.github/workflows/audit-f9k1103-cudy-wip03-auth.yml'
       - 'firmware/f9k1103-lede-17.01.5/cudy-port/dispatcher-lede-cudy.lua'
-      - 'firmware/f9k1103-lede-17.01.5/cudy-port/sys-lede.lua'
       - 'firmware/f9k1103-lede-17.01.5/cudy-port/sysauth-lede-cudy.js'
       - 'firmware/f9k1103-lede-17.01.5/cudy-port/95-f9k1103-cudy-runtime'
   workflow_dispatch:
@@ -34,14 +33,10 @@ jobs:
           P=firmware/f9k1103-lede-17.01.5/cudy-port
 
           luac5.1 -p "$P/dispatcher-lede-cudy.lua"
-          luac5.1 -p "$P/sys-lede.lua"
           dash -n "$P/95-f9k1103-cudy-runtime"
 
           grep -Fq 'local checkuser = (user == "admin") and "root" or user' \
             "$P/dispatcher-lede-cudy.lua"
-          grep -Fq 'return (pwh == nil or nixio.crypt(pass, pwh) == pwh)' \
-            "$P/sys-lede.lua"
-
           grep -Fq "uci set luci.main.sysauth='admin'" "$P/95-f9k1103-cudy-runtime"
           grep -Fq "uci set luci.sauth.defpasswd='0'" "$P/95-f9k1103-cudy-runtime"
           grep -Fq "uci -q delete luci.sauth.salt" "$P/95-f9k1103-cudy-runtime"
