@@ -1,0 +1,42 @@
+#!/bin/sh
+# Read-only Cudy bdinfo compatibility shim for Belkin F9K1103.
+# It exposes only the tiny subset required by the imported Cudy UI.
+# It does not emulate Cudy provisioning, cloud identity or writable factory data.
+
+cmd="$1"
+
+get_mac()
+{
+    for p in /sys/class/net/eth0/address /sys/class/net/br-lan/address; do
+        [ -r "$p" ] || continue
+        tr -d ':\r\n' < "$p" | tr 'a-f' 'A-F'
+        return 0
+    done
+    echo "000000000000"
+}
+
+case "$cmd" in
+    check|checkuuid)
+        echo "OK"
+        ;;
+    factory)
+        echo "0"
+        ;;
+    dbg)
+        echo "NG"
+        ;;
+    mac)
+        get_mac
+        ;;
+    country)
+        c="$(uci -q get wireless.radio0.country 2>/dev/null)"
+        [ -n "$c" ] && echo "$c" || echo "EU"
+        ;;
+    fuuid)
+        # Cloud binding is intentionally unsupported on this port.
+        echo "00000000000000000000000000000000"
+        ;;
+    *)
+        exit 1
+        ;;
+esac
