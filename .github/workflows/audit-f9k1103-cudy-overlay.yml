@@ -6,6 +6,7 @@ on:
       - f9k1103-cudy-port-wip01
     paths:
       - '.github/workflows/audit-f9k1103-cudy-overlay.yml'
+      - 'tools/audit-f9k1103-cudy-overlay.py'
   workflow_dispatch:
 
 permissions:
@@ -22,7 +23,8 @@ jobs:
         run: |
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            ca-certificates wget unzip squashfs-tools file binutils python3 coreutils grep gawk sed findutils
+            ca-certificates wget unzip squashfs-tools file binutils python3 \
+            coreutils grep gawk sed findutils rsync
       - uses: actions/checkout@v4
       - name: Audit FU8-selected WR1200V2 donor
         shell: bash
@@ -56,7 +58,6 @@ jobs:
 
           find "$ROOT/usr/lib/lua/luci" "$ROOT/www" -type f -print0 | \
             xargs -0 file > "$O/FILE-TYPES.txt"
-
           grep 'ELF ' "$O/FILE-TYPES.txt" > "$O/ELF-IN-DONOR-UI.txt" || true
 
           find "$ROOT/usr/lib/lua/luci" "$ROOT/www" -type f ! -name '*.so' -print0 | \
@@ -67,86 +68,20 @@ jobs:
             exit 1
           fi
 
-          python3 - "$ROOT" "$O" <<'PY'
-import pathlib, re, sys, subprocess
-root=pathlib.Path(sys.argv[1])
-out=pathlib.Path(sys.argv[2])
-files=list((root/'usr/lib/lua/luci').rglob('*'))+list((root/'www').rglob('*'))
-files=[p for p in files if p.is_file() and p.suffix != '.so']
-needles=[
-    'mcore','cmagent','cmsd','bdinfo','hcshd','gcom','cellular',
-    'quectel','modem','cwmp','tr069','mosquitto','rpcd','ubus',
-    'iwinfo','wireless','vpn','samba','usb','opkg'
-]
-hits={n:[] for n in needles}
-requires={}
-for p in files:
-    rel=str(p.relative_to(root))
-    try:
-        data=p.read_bytes()
-    except Exception:
-        continue
-    # strings-like extraction so Lua 5.1 bytecode is covered too
-    ss=[m.group().decode('latin1','replace') for m in re.finditer(rb'[ -~]{3,}',data)]
-    joined='\n'.join(ss)
-    low=joined.lower()
-    for n in needles:
-        if n in low:
-            hits[n].append(rel)
-    mods=set()
-    for s in ss:
-        for pat in [
-            r'require\s*[\"\']([A-Za-z0-9_./-]+)',
-            r'require\s*\(?\s*[\"\']([A-Za-z0-9_./-]+)'
-        ]:
-            for m in re.finditer(pat,s):
-                mods.add(m.group(1))
-    if mods:
-        requires[rel]=sorted(mods)
+          python3 "$GITHUB_WORKSPACE/tools/audit-f9k1103-cudy-overlay.py" "$ROOT" "$O"
 
-with (out/'DEPENDENCY-HITS.tsv').open('w') as f:
-    f.write('dependency\tcount\tpaths\n')
-    for n in needles:
-        f.write(f"{n}\t{len(hits[n])}\t{' ; '.join(hits[n])}\n")
-
-with (out/'REQUIRE-STRINGS.tsv').open('w') as f:
-    f.write('path\trequires\n')
-    for p in sorted(requires):
-        f.write(p+'\t'+' ; '.join(requires[p])+'\n')
-
-# Explicit feature-risk buckets for WIP01.
-risk = {
- 'BLOCK_CELLULAR': set(hits['cellular']+hits['gcom']+hits['quectel']+hits['modem']),
- 'ADAPT_MCORE': set(hits['mcore']),
- 'ADAPT_CLOUD': set(hits['cmagent']+hits['cmsd']+hits['mosquitto']),
- 'ADAPT_IDENTITY': set(hits['bdinfo']),
- 'DROP_TR069': set(hits['cwmp']+hits['tr069']),
-}
-with (out/'PORT-RISK-MATRIX.tsv').open('w') as f:
-    f.write('class\tcount\tpaths\n')
-    for k,v in risk.items():
-        f.write(f"{k}\t{len(v)}\t{' ; '.join(sorted(v))}\n")
-PY
-
-          # Size of the exact WIP01 selection, not the whole donor rootfs.
-          mkdir -p "$W/overlay/usr/lib/lua" "$W/overlay/www"
-          rsync_available=0
-          if command -v rsync >/dev/null 2>&1; then rsync_available=1; fi
-          if [ "$rsync_available" = 1 ]; then
-            rsync -a --exclude='*.so' "$ROOT/usr/lib/lua/luci/" "$W/overlay/usr/lib/lua/luci/"
-            rsync -a "$ROOT/www/" "$W/overlay/www/"
-          else
-            cp -a "$ROOT/usr/lib/lua/luci" "$W/overlay/usr/lib/lua/"
-            find "$W/overlay/usr/lib/lua/luci" -name '*.so' -delete
-            cp -a "$ROOT/www/." "$W/overlay/www/"
-          fi
+          mkdir -p "$W/overlay/usr/lib/lua/luci" "$W/overlay/www"
+          rsync -a --exclude='*.so' "$ROOT/usr/lib/lua/luci/" "$W/overlay/usr/lib/lua/luci/"
+          rsync -a "$ROOT/www/" "$W/overlay/www/"
           rm -f "$W/overlay/usr/lib/lua/luci/apprpc/cellular.lua"
           rm -f "$W/overlay/usr/lib/lua/luci/model/cbi/network/dtu.lua"
 
           du -sh "$W/overlay" > "$O/OVERLAY-SIZE-RAW.txt"
-          mksquashfs "$W/overlay" "$O/overlay-test.squashfs" -comp xz -b 262144 -noappend -no-progress >/dev/null
+          mksquashfs "$W/overlay" "$O/overlay-test.squashfs" \
+            -comp xz -b 262144 -noappend -no-progress >/dev/null
           ls -l "$O/overlay-test.squashfs" > "$O/OVERLAY-SIZE-SQUASHFS.txt"
-          find "$W/overlay" -type f -print0 | sort -z | xargs -0 sha256sum > "$O/PORTABLE-SELECTION-SHA256.txt"
+          find "$W/overlay" -type f -print0 | sort -z | \
+            xargs -0 sha256sum > "$O/PORTABLE-SELECTION-SHA256.txt"
 
       - name: Show audit summary
         run: |
