@@ -1,0 +1,32 @@
+<%+header%>
+<%
+ local disp=require "luci.dispatcher"
+%>
+<div class="cudy-dashboard">
+ <div class="cudy-dashboard-title">
+  <h2>Quick Setup</h2>
+  <div class="cudy-dashboard-sub">Belkin F9K1103 · native LEDE backend · Cudy workflow</div>
+ </div>
+ <div class="cudy-card-grid">
+  <div class="cudy-card">
+   <div class="cudy-card-title">1. Internet</div>
+   <div class="cudy-card-state ok">WAN</div>
+   <p>Configure DHCP, static address, PPPoE or other installed WAN protocols.</p>
+   <a class="cudy-more" href="<%=disp.build_url("admin/network/network/wan")%>">Configure Internet</a>
+  </div>
+  <div class="cudy-card">
+   <div class="cudy-card-title">2. Wireless</div>
+   <div class="cudy-card-state ok">2.4 + 5 GHz</div>
+   <p>Configure the native RT3092 and RT3883 wireless networks, SSIDs and security.</p>
+   <a class="cudy-more" href="<%=disp.build_url("admin/network/wireless")%>">Configure Wireless</a>
+  </div>
+  <div class="cudy-card">
+   <div class="cudy-card-title">3. Local Network</div>
+   <div class="cudy-card-state ok">LAN</div>
+   <p>Configure the LAN address and local interface. DHCP/DNS is available separately.</p>
+   <a class="cudy-more" href="<%=disp.build_url("admin/network/network/lan")%>">Configure LAN</a>
+  </div>
+ </div>
+ <div class="cudy-port-note">This setup page deliberately uses the proven native F9K1103 configuration handlers instead of Cudy MT7628/vendor backends.</div>
+</div>
+<%+footer%>
