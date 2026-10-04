@@ -87,6 +87,13 @@ jobs:
             usr/lib/lua/luci/model/cbi/devices/devlist.lua \
             usr/lib/lua/luci/model/cbi/devices/status.lua \
             usr/lib/lua/luci/model/cbi/network/summary.lua \
+            usr/lib/lua/luci/model/cbi/wireless/config_general.lua \
+            usr/lib/lua/luci/model/cbi/wireless/config_combine.lua \
+            usr/lib/lua/luci/model/cbi/wireless/config_uncombine.lua \
+            usr/lib/lua/luci/model/cbi/wireless/wireless.lua \
+            usr/lib/lua/luci/model/cbi/wireless/wireless_utils.lua \
+            usr/lib/lua/luci/apprpc/wifi.lua \
+            usr/lib/lua/luci/model/cbi/system/wizard.lua \
             usr/lib/lua/luci/model/cbi/system/status.lua \
             usr/lib/lua/luci/view/themes/bootstrap/footer.htm \
             usr/lib/lua/luci/view/themes/bootstrap/sysauth.htm
