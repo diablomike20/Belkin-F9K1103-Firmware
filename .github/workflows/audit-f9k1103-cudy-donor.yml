@@ -1,0 +1,38 @@
+name: Audit F9K1103 Cudy donor
+
+on:
+  push:
+    branches:
+      - f9k1103-lede-17.01.5-cudy-port
+    paths:
+      - '.github/workflows/audit-f9k1103-cudy-donor.yml'
+      - 'firmware/f9k1103-lede-17.01.5-cudy/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  donor-audit:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install extraction tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools unzip file binutils wget
+      - name: Extract and classify WR1200V2 Cudy donor
+        run: bash firmware/f9k1103-lede-17.01.5-cudy/extract-cudy-donor.sh
+      - name: Show donor truth
+        run: |
+          cat out-f9k1103-cudy-donor/DONOR-TRUTH.txt
+          echo
+          head -100 out-f9k1103-cudy-donor/CUDY-PORT-MAP-FOCUSED.csv
+      - name: Upload audit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: F9K1103-CUDY-DONOR-AUDIT-01
+          path: out-f9k1103-cudy-donor/
+          if-no-files-found: error
+          compression-level: 9
