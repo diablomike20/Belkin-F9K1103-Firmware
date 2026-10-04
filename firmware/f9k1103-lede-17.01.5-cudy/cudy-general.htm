@@ -1,0 +1,71 @@
+<%+header%>
+<%
+ local adapter=require "luci.f9k1103_adapter"
+ local disp=require "luci.dispatcher"
+ local s=adapter.snapshot()
+%>
+<div class="cudy-dashboard">
+ <div class="cudy-dashboard-title">
+  <h2>General Settings</h2>
+  <div class="cudy-dashboard-sub">Router functions mapped to the native F9K1103 LEDE backend</div>
+ </div>
+
+ <div class="cudy-card-grid">
+  <div class="cudy-card">
+   <div class="cudy-card-title">Internet / WAN</div>
+   <div class="cudy-card-state <%=s.wan.up and "ok" or "off"%>"><%=s.wan.up and "Online" or "Offline"%></div>
+   <dl><dt>Protocol</dt><dd><%=pcdata(s.wan.proto)%></dd><dt>IP</dt><dd><%=pcdata(s.wan.ipaddr)%></dd></dl>
+   <a class="cudy-more" href="<%=disp.build_url("admin/network/network/wan")%>">Configure WAN</a>
+  </div>
+
+  <div class="cudy-card">
+   <div class="cudy-card-title">LAN</div>
+   <div class="cudy-card-state ok">Local Network</div>
+   <dl><dt>IP</dt><dd><%=pcdata(s.lan.ipaddr)%></dd><dt>Device</dt><dd><%=pcdata(s.lan.device)%></dd></dl>
+   <a class="cudy-more" href="<%=disp.build_url("admin/network/network/lan")%>">Configure LAN</a>
+  </div>
+
+  <div class="cudy-card">
+   <div class="cudy-card-title">Wireless</div>
+   <div class="cudy-card-state ok">Dual Band</div>
+   <p>2.4 GHz + 5 GHz native F9K1103 radios.</p>
+   <a class="cudy-more" href="<%=disp.build_url("admin/network/wireless")%>">Wireless Settings</a>
+  </div>
+
+  <div class="cudy-card">
+   <div class="cudy-card-title">DHCP & DNS</div>
+   <div class="cudy-card-state ok">dnsmasq</div>
+   <p>LAN DHCP leases, DHCP options and DNS forwarding.</p>
+   <a class="cudy-more" href="<%=disp.build_url("admin/network/dhcp")%>">DHCP / DNS</a>
+  </div>
+
+  <div class="cudy-card">
+   <div class="cudy-card-title">Ethernet Switch</div>
+   <div class="cudy-card-state ok">RTL8367R-VB</div>
+   <p>LAN 0–3, WAN 4 and CPU port 5 on the native switch driver.</p>
+   <a class="cudy-more" href="<%=disp.build_url("admin/network/vlan")%>">Switch Settings</a>
+  </div>
+
+  <div class="cudy-card">
+   <div class="cudy-card-title">Firewall</div>
+   <div class="cudy-card-state ok">Router</div>
+   <p>Zones, forwarding and traffic rules using the installed LEDE firewall backend.</p>
+   <a class="cudy-more" href="<%=disp.build_url("admin/network/firewall")%>">Firewall</a>
+  </div>
+
+  <div class="cudy-card">
+   <div class="cudy-card-title">Static Routes</div>
+   <div class="cudy-card-state ok">IPv4 / IPv6</div>
+   <p>Configure static routes through the native network model.</p>
+   <a class="cudy-more" href="<%=disp.build_url("admin/network/routes")%>">Routes</a>
+  </div>
+
+  <div class="cudy-card">
+   <div class="cudy-card-title">Diagnostics</div>
+   <div class="cudy-card-state ok">Tools</div>
+   <p>Ping, traceroute and DNS lookup.</p>
+   <a class="cudy-more" href="<%=disp.build_url("admin/network/diagnostics")%>">Diagnostic Tools</a>
+  </div>
+ </div>
+</div>
+<%+footer%>
