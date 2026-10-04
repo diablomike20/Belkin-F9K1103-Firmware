@@ -1,20 +1,53 @@
 #!/bin/sh
-# Local-only Cudy runtime identity for F9K1103.
+# Local-only Cudy runtime identity and UCI schema adapter for F9K1103.
+#
+# Firmware-Unlock donor RE proved that system.board.type is consumed as the
+# Cudy operating-mode token (router/ap/re) by description.lua.  It is NOT a
+# hardware board identifier.
+
 uci -q get system.board >/dev/null || uci set system.board=board
-uci set system.board.type='R26'
+uci set system.board.type='router'
+uci set system.board.workmode='router'
 uci set system.board.target='F9K1103'
 uci set system.board.model='Belkin F9K1103 Version 1.0'
 uci set system.board.rom='F9K1103'
-uci set system.board.workmode='router'
 
+# Disable Cudy cloud planes; no vendor cloud daemon is imported.
+[ -e /etc/config/cmagent ] || touch /etc/config/cmagent
+[ -e /etc/config/cmsd ] || touch /etc/config/cmsd
 uci -q get cmagent.mqtt >/dev/null || uci set cmagent.mqtt=mqtt
 uci set cmagent.mqtt.disabled='1'
 uci set cmagent.mqtt.broker=''
-
 uci -q get cmsd.cloud >/dev/null || uci set cmsd.cloud=cloud
 uci set cmsd.cloud.enabled='0'
+
+# Translate LEDE's generated main AP section names into the Cudy router
+# contract.  On this RT3883 family the integrated RT3883 WMAC is the 5 GHz
+# radio (radio0) and the PCI RT3091/3092 is explicitly 2.4 GHz (radio1).
+# Cudy expects wlan00 = 2.4 GHz main AP and wlan10 = 5 GHz main AP.
+for sec in $(uci -q show wireless 2>/dev/null | sed -n "s/^wireless\.\([^.=]*\)=wifi-iface$/\1/p"); do
+    dev="$(uci -q get wireless.$sec.device)"
+    mode="$(uci -q get wireless.$sec.mode)"
+    [ "$mode" = "ap" ] || continue
+
+    target=""
+    case "$dev" in
+        radio1) target="wlan00" ;;
+        radio0) target="wlan10" ;;
+    esac
+
+    [ -n "$target" ] || continue
+    [ "$sec" = "$target" ] && continue
+
+    # Only rename the generated primary AP.  Never clobber an existing Cudy
+    # section (important for sysupgrade/config restore).
+    if ! uci -q get wireless.$target >/dev/null 2>&1; then
+        uci rename wireless.$sec="$target"
+    fi
+done
 
 uci commit system
 uci commit cmagent
 uci commit cmsd
+uci commit wireless
 exit 0
