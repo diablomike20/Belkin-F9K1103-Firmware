@@ -32,3 +32,25 @@ body.cudy-f9k1103 footer a{color:#777}
  body.cudy-f9k1103 header .nav>li>a{padding-top:18px;padding-bottom:18px}
  body.cudy-f9k1103 #maincontent{padding-top:12px}
 }
+
+/* WIP-02 native-backed Cudy dashboard */
+.cudy-dashboard{max-width:1180px;margin:0 auto}
+.cudy-dashboard-title{margin:4px 0 20px}
+.cudy-dashboard-title h2{margin-bottom:4px;font-size:26px;font-weight:400}
+.cudy-dashboard-sub{color:#89929b}
+.cudy-card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}
+.cudy-card{position:relative;background:#fff;border:1px solid #e2e6ea;border-radius:5px;padding:18px 18px 44px;min-height:210px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.cudy-card-title{font-size:17px;font-weight:500;color:#3d4650;margin-bottom:8px}
+.cudy-card-state{display:inline-block;padding:3px 9px;border-radius:11px;font-size:12px;margin-bottom:12px}
+.cudy-card-state.ok{background:#eaf8ef;color:#248a4a}
+.cudy-card-state.off{background:#f2f3f5;color:#87909a}
+.cudy-card dl{display:grid;grid-template-columns:44% 56%;margin:0;font-size:12px;line-height:1.8}
+.cudy-card dt{color:#8a929b;font-weight:400}
+.cudy-card dd{margin:0;color:#41484f;overflow-wrap:anywhere}
+.cudy-more{position:absolute;left:18px;bottom:16px;color:#008cff}
+.cudy-actions{display:flex;flex-wrap:wrap;gap:10px;margin:20px 0}
+.cudy-actions a{display:inline-block;background:#fff;border:1px solid #dbe0e5;border-radius:4px;padding:9px 14px;color:#4b545d;text-decoration:none}
+.cudy-actions a:hover{border-color:#008cff;color:#008cff}
+.cudy-port-note{font-size:12px;color:#9299a1;border-top:1px solid #e4e7ea;padding-top:13px;margin-top:12px}
+.cudy-port-mark{font-size:12px;color:#999;margin-bottom:5px}
+@media(max-width:600px){.cudy-card-grid{grid-template-columns:1fr}.cudy-actions{display:grid;grid-template-columns:1fr 1fr}}
