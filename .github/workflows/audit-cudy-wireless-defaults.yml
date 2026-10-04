@@ -38,12 +38,25 @@ jobs:
           tail -c +$((OFF + 1)) "$BIN" > "$W/root.sqfs"
           unsquashfs -no-progress -d "$W/root" "$W/root.sqfs" >/dev/null
 
-          cp "$W/root/etc/config/wireless" "$O/WR1200V2-2.4.23-WIRELESS.txt"
+          if [ -f "$W/root/etc/config/wireless" ]; then
+            cp "$W/root/etc/config/wireless" "$O/WR1200V2-2.4.23-WIRELESS.txt"
+          else
+            echo 'NO_STATIC_ETC_CONFIG_WIRELESS' > "$O/WR1200V2-2.4.23-WIRELESS.txt"
+          fi
           cp "$W/root/etc/board.json" "$O/WR1200V2-2.4.23-BOARD.json" 2>/dev/null || true
-          grep -RIna --binary-files=text -E "option (band|ifname)|config wifi-(device|iface)|wlan00|wlan10|radio0|radio1" \
-             "$W/root/etc/config/wireless" "$W/root/etc/board.json" 2>/dev/null > "$O/KEY-LINES.txt" || true
+
+          grep -RIna --binary-files=text -E \
+            "wlan00|wlan10|radio0|radio1|option[[:space:]]+(band|ifname)|wifi-device|wifi-iface" \
+            "$W/root/etc" "$W/root/lib" "$W/root/usr/lib" 2>/dev/null \
+            > "$O/WIRELESS-GENERATORS-AND-METADATA.txt" || true
+
+          find "$W/root/etc" "$W/root/lib" "$W/root/usr/lib" -type f \
+            \( -iname '*wireless*' -o -iname '*wifi*' -o -iname '*mac80211*' \) \
+            -print | sort > "$O/WIRELESS-RELATED-FILES.txt"
       - run: |
           cat out-wr1200-wireless/WR1200V2-2.4.23-WIRELESS.txt
+          echo '--- key generator hits ---'
+          head -300 out-wr1200-wireless/WIRELESS-GENERATORS-AND-METADATA.txt
       - uses: actions/upload-artifact@v4
         with:
           name: RE-WR1200V2-2.4.23-WIRELESS-DEFAULTS
