@@ -116,6 +116,33 @@ fi
   find usr/lib/lua/luci usr/lib/lua/mcore.lua usr/bin/bdinfo www etc/uci-defaults etc/config -type f -print0 | sort -z | xargs -0 sha256sum
 ) > "$GITHUB_WORKSPACE/F9K1103-CUDY-OVERLAY-SHA256.txt"
 
+echo "=== Cudy WIP02 pre-build gate ==="
+sh -n files/usr/bin/bdinfo
+sh -n files/etc/uci-defaults/95-f9k1103-cudy-runtime
+if command -v luac5.1 >/dev/null 2>&1; then
+  luac5.1 -p files/usr/lib/lua/mcore.lua
+elif command -v luac >/dev/null 2>&1; then
+  luac -p files/usr/lib/lua/mcore.lua
+else
+  echo "ERROR: host Lua compiler unavailable for mcore syntax gate" >&2
+  exit 1
+fi
+for forbidden in \
+  files/usr/lib/lua/luci/controller/cwmp.lua \
+  files/usr/lib/lua/luci/model/cbi/cwmp.lua \
+  files/usr/lib/lua/luci/apprpc/cellular.lua \
+  files/usr/lib/lua/luci/model/cbi/diag/gcom.lua \
+  files/usr/lib/lua/luci/model/cbi/network/dtu.lua
+do
+  [ ! -e "$forbidden" ] || { echo "ERROR: forbidden Cudy feature remains: $forbidden" >&2; exit 1; }
+done
+if find files/usr/lib/lua/luci files/www -type f -print0 | xargs -0 file | grep -q 'ELF '; then
+  echo "ERROR: donor ELF remains in Cudy overlay" >&2
+  find files/usr/lib/lua/luci files/www -type f -print0 | xargs -0 file | grep 'ELF ' >&2 || true
+  exit 1
+fi
+echo "Cudy WIP02 pre-build gate: PASS"
+
 
 python3 - <<'PY'
 from pathlib import Path
@@ -218,6 +245,30 @@ CFG
 make defconfig
 make -j$(nproc) download
 make -j$(nproc) V=s
+
+echo "=== Cudy WIP02 built-rootfs gate ==="
+MCORE_BUILT="$(find build_dir -type f -path '*/root-ramips/usr/lib/lua/mcore.lua' -print -quit)"
+[ -n "$MCORE_BUILT" ] || { echo 'ERROR: built rootfs mcore.lua not found' >&2; exit 1; }
+ROOT_BUILT="${MCORE_BUILT%/usr/lib/lua/mcore.lua}"
+test -x "$ROOT_BUILT/usr/bin/bdinfo"
+grep -aq 'F9K1103 Cudy compatibility layer' "$ROOT_BUILT/usr/lib/lua/mcore.lua"
+grep -aq '2025 Shenzhen Cudy Technology Co., Ltd.' "$ROOT_BUILT/usr/lib/lua/luci/view/themes/bootstrap/footer.htm"
+grep -aq '2.4.23-F9K1103-Cudy-WIP02' "$ROOT_BUILT/etc/rom_version"
+for forbidden in \
+  "$ROOT_BUILT/usr/lib/lua/luci/controller/cwmp.lua" \
+  "$ROOT_BUILT/usr/lib/lua/luci/model/cbi/cwmp.lua" \
+  "$ROOT_BUILT/usr/lib/lua/luci/apprpc/cellular.lua" \
+  "$ROOT_BUILT/usr/lib/lua/luci/model/cbi/diag/gcom.lua" \
+  "$ROOT_BUILT/usr/lib/lua/luci/model/cbi/network/dtu.lua"
+do
+  [ ! -e "$forbidden" ] || { echo "ERROR: forbidden file entered built rootfs: $forbidden" >&2; exit 1; }
+done
+{
+  echo "CUDY_BUILT_ROOTFS_GATE=PASS"
+  echo "ROOT_BUILT=$ROOT_BUILT"
+  du -sh "$ROOT_BUILT"
+  sha256sum "$ROOT_BUILT/usr/lib/lua/mcore.lua" "$ROOT_BUILT/usr/bin/bdinfo" "$ROOT_BUILT/etc/rom_version"
+} > "$OUT/CUDY-WIP02-ROOTFS-VALIDATION.txt"
 
 cp -av bin/targets/ramips/rt3883/*f9k1103* "$OUT/" || true
 cp -av "$GITHUB_WORKSPACE/F9K1103-LEDE-17.01.5.patch" "$OUT/"
