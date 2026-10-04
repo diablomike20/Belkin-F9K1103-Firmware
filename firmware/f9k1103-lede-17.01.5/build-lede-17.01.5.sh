@@ -64,7 +64,7 @@ tail -c +$((DONOR_SQUASHFS_OFFSET + 1)) "$DONOR_BIN" > "$DONOR_DIR/rootfs.squash
 unsquashfs -no-progress -d "$DONOR_DIR/rootfs" "$DONOR_DIR/rootfs.squashfs" >/dev/null
 
 mkdir -p files/usr/lib/lua files/www
-rsync -a "$DONOR_DIR/rootfs/usr/lib/lua/luci/" files/usr/lib/lua/luci/
+rsync -a --exclude='*.so' "$DONOR_DIR/rootfs/usr/lib/lua/luci/" files/usr/lib/lua/luci/
 rsync -a "$DONOR_DIR/rootfs/www/" files/www/
 
 # Explicitly exclude hardware/product-family features that do not belong on
@@ -74,8 +74,9 @@ rm -f files/usr/lib/lua/luci/apprpc/cellular.lua
 rm -f files/usr/lib/lua/luci/model/cbi/network/dtu.lua
 
 # Never allow architecture-specific executables/shared libraries into this
-# first port stage.  Fail closed if the selected overlay unexpectedly contains
-# ELF data.
+# first port stage. Native LuCI C modules (for example ip.so/jsonc.so) are
+# deliberately left to the F9K1103 LEDE build. Fail closed if any other ELF
+# unexpectedly enters the selected overlay.
 if find files/usr/lib/lua/luci files/www -type f -print0 | xargs -0 file | grep -q 'ELF '; then
   echo 'ERROR: Cudy UI overlay unexpectedly contains ELF content' >&2
   find files/usr/lib/lua/luci files/www -type f -print0 | xargs -0 file | grep 'ELF ' >&2 || true
