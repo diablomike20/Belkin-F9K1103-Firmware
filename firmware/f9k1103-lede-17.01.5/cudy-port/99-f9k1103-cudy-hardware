@@ -1,0 +1,68 @@
+#!/bin/sh
+# CUDY-FIRST hardware boundary adapter for Belkin F9K1103 v1.
+#
+# This script intentionally does NOT rewrite the donor product identity,
+# authentication policy, cloud configuration, firmware version or Cudy
+# feature defaults.
+#
+# It runs after the stock Cudy WR1200E uci-defaults and changes only physical
+# target facts proven on the F9K1103.
+
+uci -q get system.board >/dev/null 2>&1 || uci set system.board=board
+uci set system.board.type='router'
+uci set system.board.workmode='router'
+
+# WR1200E R62 stock defaults force 4 Ethernet ports.
+# F9K1103 has 1 WAN + 4 LAN = 5 physical ports.  Physical switch/VLAN
+# placement is owned by the target board.d/RTL8367R layer; this value is only
+# the Cudy UI/runtime port-count metadata.
+uci set system.board.ports='5'
+
+# Physical target enumeration was verified on the real F9K1103:
+#   radio0 = PCI RT3091/3092, 2.4 GHz
+#   radio1 = RT3883 WMAC,      5 GHz
+#
+# Preserve the Cudy main-AP contract:
+#   wlan00 = 2.4 GHz main AP
+#   wlan10 = 5 GHz main AP
+#
+# Do not change donor SSID/security/channel/default semantics.
+for sec in $(uci -q show wireless 2>/dev/null | sed -n "s/^wireless\.\([^.=]*\)=wifi-iface$/\1/p"); do
+    dev="$(uci -q get wireless.$sec.device)"
+    mode="$(uci -q get wireless.$sec.mode)"
+    [ "$mode" = "ap" ] || continue
+
+    target=""
+    case "$dev" in
+        radio0) target="wlan00" ;;
+        radio1) target="wlan10" ;;
+    esac
+
+    [ -n "$target" ] || continue
+    [ "$sec" = "$target" ] && continue
+
+    # Rename only a generated primary AP and never overwrite an existing
+    # donor Cudy section.
+    if ! uci -q get wireless.$target >/dev/null 2>&1; then
+        uci rename wireless.$sec="$target"
+    fi
+done
+
+if uci -q get wireless.wlan00 >/dev/null 2>&1; then
+    uci set wireless.wlan00.device='radio0'
+    uci set wireless.wlan00.ifname='wlan00'
+fi
+
+if uci -q get wireless.wlan10 >/dev/null 2>&1; then
+    uci set wireless.wlan10.device='radio1'
+    uci set wireless.wlan10.ifname='wlan10'
+fi
+
+# Cudy models consume these logical bands; capability details still come from
+# the target iwinfo/mac80211 runtime.
+uci -q get wireless.radio0 >/dev/null 2>&1 && uci set wireless.radio0.band='2g'
+uci -q get wireless.radio1 >/dev/null 2>&1 && uci set wireless.radio1.band='5g'
+
+uci commit system
+uci commit wireless
+exit 0
