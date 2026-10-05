@@ -1,0 +1,90 @@
+name: Deep donor auth dispatch audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - f9k1103-cudy-port-wip03-clean-audit
+    paths:
+      - '.github/workflows/deep-donor-auth-dispatch.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install extraction tools
+        run: sudo apt-get update && sudo apt-get install -y squashfs-tools unzip curl file jq
+      - name: Extract donor and disassemble auth path
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$GITHUB_WORKSPACE/out-donor-auth"
+          rm -rf "$OUT" /tmp/donor-auth
+          mkdir -p "$OUT" /tmp/donor-auth
+
+          URL='https://www.cudy.com/cdn/shop/files/WR1200V2-R26-2.4.23-20251224-145945-flash.zip?v=10287497656812635253'
+          curl -fL "$URL" -o /tmp/donor-auth/donor.zip
+          unzip -q /tmp/donor-auth/donor.zip -d /tmp/donor-auth
+          BIN="$(find /tmp/donor-auth -maxdepth 1 -type f -name '*-flash.bin' | head -n1)"
+          tail -c +2583296 "$BIN" > /tmp/donor-auth/rootfs.sqfs
+          sudo unsquashfs -no-progress -d /tmp/donor-auth/root /tmp/donor-auth/rootfs.sqfs >/dev/null
+          ROOT=/tmp/donor-auth/root
+
+          LUAD_URL='https://github.com/dweekly/luad/releases/download/v0.3.1/luad-0.3.1-linux-x86_64.tar.gz'
+          curl -fL "$LUAD_URL" -o /tmp/donor-auth/luad.tgz
+          echo '5e297699463f04e19fda3a867fb9d36d444f848ee0ddf560b6ae383568ec0053  /tmp/donor-auth/luad.tgz' | sha256sum -c -
+          tar -xzf /tmp/donor-auth/luad.tgz -C /tmp/donor-auth
+          LUAD="$(find /tmp/donor-auth -type f -name luad -perm -111 | head -n1)"
+          test -n "$LUAD"
+
+          sudo cp "$ROOT/usr/lib/lua/luci/dispatcher.lua" "$OUT/RE-DONOR-dispatcher.lua"
+          sudo cp "$ROOT/usr/lib/lua/luci/controller/index.lua" "$OUT/RE-DONOR-controller-index.lua"
+          sudo cp "$ROOT/usr/lib/lua/luci/gui.lua" "$OUT/RE-DONOR-gui.lua"
+          sudo cp "$ROOT/usr/lib/lua/luci/description.lua" "$OUT/RE-DONOR-description.lua"
+          sudo cp "$ROOT/www/luci-static/bootstrap/js/sysauth.js" "$OUT/RE-DONOR-sysauth.js"
+          sudo cp "$ROOT/usr/lib/lua/luci/view/themes/bootstrap/sysauth.htm" "$OUT/RE-DONOR-sysauth.htm"
+          sudo cp "$ROOT/usr/lib/lua/luci/view/themes/bootstrap/index.htm" "$OUT/RE-DONOR-index.htm"
+
+          for p in             usr/lib/lua/luci/dispatcher.lua             usr/lib/lua/luci/controller/index.lua             usr/lib/lua/luci/gui.lua             usr/lib/lua/luci/description.lua
+          do
+            name="$(echo "$p" | tr '/' '_')"
+            "$LUAD" inspect "$ROOT/$p" > "$OUT/$name.inspect.txt" 2>&1 || true
+            "$LUAD" disasm "$ROOT/$p" > "$OUT/$name.disasm.txt" 2>&1 || true
+            "$LUAD" origins "$ROOT/$p" > "$OUT/$name.origins.txt" 2>&1 || true
+          done
+
+          if [ -e "$ROOT/usr/lib/lua/luci/controller/admin/index.lua" ]; then
+            sudo cp "$ROOT/usr/lib/lua/luci/controller/admin/index.lua" "$OUT/RE-DONOR-controller-admin-index.lua"
+            "$LUAD" inspect "$ROOT/usr/lib/lua/luci/controller/admin/index.lua" > "$OUT/controller-admin-index.inspect.txt" 2>&1 || true
+            "$LUAD" disasm "$ROOT/usr/lib/lua/luci/controller/admin/index.lua" > "$OUT/controller-admin-index.disasm.txt" 2>&1 || true
+          fi
+
+          {
+            echo '=== /etc/config/luci ==='
+            sudo cat "$ROOT/etc/config/luci" 2>/dev/null || true
+            echo
+            echo '=== /etc/config/uhttpd ==='
+            sudo cat "$ROOT/etc/config/uhttpd" 2>/dev/null || true
+            echo
+            echo '=== sysauth references ==='
+            sudo grep -RnsE 'sysauth|showuser|defpasswd|sessiontime' "$ROOT/etc" "$ROOT/usr/lib/lua/luci" 2>/dev/null | head -n 1000 || true
+          } > "$OUT/RE-DONOR-AUTH-CONFIG-AND-GREP.txt"
+
+          {
+            echo '=== passwd ==='
+            sudo grep -E '^(root|admin):' "$ROOT/etc/passwd" || true
+            echo '=== shadow ==='
+            sudo grep -E '^(root|admin):' "$ROOT/etc/shadow" || true
+            echo '=== init/default scripts that touch luci.main.sysauth ==='
+            sudo grep -RnsE 'luci.*sysauth|sysauth.*admin|sysauth.*root' "$ROOT/etc/init.d" "$ROOT/etc/uci-defaults" "$ROOT/usr/bin" "$ROOT/usr/sbin" 2>/dev/null | head -n 1000 || true
+          } > "$OUT/RE-DONOR-RUNTIME-AUTH-WRITES.txt"
+
+          sha256sum "$OUT"/* > "$OUT/RE-SHA256SUMS.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DEEP-DONOR-AUTH-DISPATCH
+          path: out-donor-auth/
