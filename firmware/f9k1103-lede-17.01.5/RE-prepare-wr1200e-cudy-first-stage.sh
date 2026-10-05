@@ -74,9 +74,32 @@ mkdir -p "$OUT_ROOT/etc/uci-defaults"
 cp -a "$ADAPTER_SRC" "$OUT_ROOT/etc/uci-defaults/99-f9k1103-cudy-hardware"
 chmod 0755 "$OUT_ROOT/etc/uci-defaults/99-f9k1103-cudy-hardware"
 
-# IMPORTANT: donor bdinfo is deliberately left untouched here. Its ABI and
-# hardware data access are audited separately. Do not silently replace it
-# with the historical reduced shim.
+# CUDY-PINNED userspace: these files must stay donor-original unless a
+# separate, evidence-backed compatibility change is explicitly approved.
+#
+# bdinfo/libbdinfo are Cudy provisioning/device-identity components.
+# BusyBox is kept from the complete donor userspace as well; do not silently
+# substitute the target LEDE BusyBox merely because both are LEDE-based.
+for rel in \
+  bin/busybox \
+  usr/bin/bdinfo \
+  usr/lib/libbdinfo.so
+do
+  test -e "$DONOR_ROOT/$rel" || { echo "ERROR: donor-pinned object missing: $rel" >&2; exit 1; }
+  test -e "$OUT_ROOT/$rel" || { echo "ERROR: donor-pinned object missing from stage: $rel" >&2; exit 1; }
+  donor_sha="$(sha256sum "$DONOR_ROOT/$rel" | awk '{print $1}')"
+  stage_sha="$(sha256sum "$OUT_ROOT/$rel" | awk '{print $1}')"
+  [ "$donor_sha" = "$stage_sha" ] || {
+    echo "ERROR: Cudy-pinned object changed: $rel" >&2
+    echo "DONOR=$donor_sha STAGE=$stage_sha" >&2
+    exit 1
+  }
+  printf '%s  %s\n' "$donor_sha" "$rel" >> "$OUT_ROOT/RE-CUDY-PINNED-SHA256.txt"
+done
+
+# The exact donor bdinfo remains untouched here. Its hardware data access is
+# audited separately. Do not silently replace it with the historical reduced
+# shim.
 
 # This stage is intentionally non-flashable until ELF ABI and adapter gates
 # have closed.
