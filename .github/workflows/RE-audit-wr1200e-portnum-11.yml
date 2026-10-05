@@ -1,0 +1,69 @@
+name: RE WR1200E portnum contract 11
+
+on:
+  push:
+    branches: [re-f9k1103-wr1200e-cudy-full-rootfs-port]
+    paths:
+      - '.github/workflows/RE-audit-wr1200e-portnum-11.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract exact donor board contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y squashfs-tools unzip >/dev/null
+          rm -rf /tmp/re-portnum11 RE-WR1200E-PORTNUM-CONTRACT-11
+          mkdir -p /tmp/re-portnum11 RE-WR1200E-PORTNUM-CONTRACT-11
+          URL='https://www.cudy.com/cdn/shop/files/WR1200E-R62-2.4.25-20260114-184136-flash.zip?v=12982462962593522136'
+          ZIP_SHA='2e9a8dafc930a2070d45f706ec5d362428475044dcd791232f86eee7b9f4ef21'
+          curl -fL --retry 3 "$URL" -o /tmp/re-portnum11/donor.zip
+          echo "$ZIP_SHA  /tmp/re-portnum11/donor.zip" | sha256sum -c -
+          unzip -q /tmp/re-portnum11/donor.zip -d /tmp/re-portnum11/unzip
+          BIN="$(find /tmp/re-portnum11/unzip -type f -name '*.bin' | head -n1)"
+          python3 - "$BIN" <<'PY'
+          import pathlib,sys
+          b=pathlib.Path(sys.argv[1]).read_bytes()
+          i=b.find(b'hsqs')
+          if i<0: raise SystemExit('no squashfs')
+          pathlib.Path('/tmp/re-portnum11/rootfs.sqfs').write_bytes(b[i:])
+          PY
+          sudo unsquashfs -no-progress -d /tmp/re-portnum11/root /tmp/re-portnum11/rootfs.sqfs >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" /tmp/re-portnum11/root
+
+          R=/tmp/re-portnum11/root
+          for rel in             lib/functions/uci-defaults.sh             etc/uci-defaults/98-board             etc/uci-defaults/99_oem             sbin/wandetect             etc/hotplug.d/gmac/08-wan-detect             etc/hotplug.d/wandetect/08-wan-detect
+          do
+            if [ -f "$R/$rel" ]; then
+              cp "$R/$rel" "RE-WR1200E-PORTNUM-CONTRACT-11/RE-$(echo "$rel" | tr / _)"
+            fi
+          done
+
+          grep -R -n -a -E 'ucidef_set_system_board|system\.board\.portnum|system\.board\.ports|wan_port'             "$R/lib/functions" "$R/etc/uci-defaults" "$R/sbin/wandetect" "$R/etc/hotplug.d"             > RE-WR1200E-PORTNUM-CONTRACT-11/RE-PORTNUM-REFERENCES.txt || true
+
+          {
+            echo '=== ucidef_set_system_board ==='
+            grep -n -A45 -B5 'ucidef_set_system_board' "$R/lib/functions/uci-defaults.sh" || true
+            echo
+            echo '=== R62 board defaults ==='
+            cat "$R/etc/uci-defaults/98-board"
+            echo
+            echo '=== OEM defaults ==='
+            cat "$R/etc/uci-defaults/99_oem"
+          } > RE-WR1200E-PORTNUM-CONTRACT-11/RE-PORTNUM-CONTRACT.txt
+
+          sha256sum RE-WR1200E-PORTNUM-CONTRACT-11/RE-* > RE-WR1200E-PORTNUM-CONTRACT-11/RE-SHA256SUMS.txt
+          tar -czf RE-WR1200E-PORTNUM-CONTRACT-11.tar.gz RE-WR1200E-PORTNUM-CONTRACT-11
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-WR1200E-PORTNUM-CONTRACT-11
+          path: RE-WR1200E-PORTNUM-CONTRACT-11.tar.gz
