@@ -113,6 +113,13 @@ jobs:
           sed -i 's/ cmake scons bc / cmake bc /' tools/Makefile
           ! grep -q 'cmake scons bc' tools/Makefile
 
+          # Modern GCC defaults to C++17, while LEDE 17.01.5 mklibs 0.1.35
+          # still uses dynamic exception specifications. Build this historical
+          # HOST tool as GNU++11 only. This does not alter target C/C++ flags,
+          # kernel code or Cudy userspace.
+          printf '\nHOST_CXXFLAGS += -std=gnu++11\n' >> tools/mklibs/Makefile
+          tail -n 4 tools/mklibs/Makefile
+
           make -j2 tools/install V=s
           make -j2 toolchain/install V=s
           make -j2 target/linux/compile V=s
