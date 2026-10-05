@@ -1,12 +1,11 @@
 name: RE Cudy-first static candidate 10
 
 on:
+  push:
+    branches: [re-f9k1103-wr1200e-cudy-full-rootfs-port]
+    paths:
+      - '.github/workflows/RE-build-cudy-first-static-candidate-10.yml'
   workflow_dispatch:
-    inputs:
-      wandetect_run_id:
-        description: 'Successful RE wan_detect build run id'
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -69,8 +68,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          RID='${{ inputs.wandetect_run_id }}'
-          test -n "$RID"
+          RID='37380320962'
+          gh run watch "$RID" --repo "${GITHUB_REPOSITORY}" --exit-status
           gh run view "$RID" --repo "${GITHUB_REPOSITORY}" --json conclusion,name,headBranch,headSha > /tmp/re10/wandetect-run.json
           python3 - <<'PY'
           import json
