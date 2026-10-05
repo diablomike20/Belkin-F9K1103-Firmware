@@ -119,6 +119,7 @@ jobs:
 
           # No target Cudy userspace is compiled here. This builds only the
           # target-side procfs ABI module against the exact 17.01.5 RT3883 SDK.
+          # Explicit ARCH/CROSS_COMPILE required by the archived LEDE SDK.
           make -j2 package/re-wandetect-proc-compat/compile V=s
 
           KO="$(find build_dir -type f -name 're_wandetect_compat.ko' -print -quit)"
