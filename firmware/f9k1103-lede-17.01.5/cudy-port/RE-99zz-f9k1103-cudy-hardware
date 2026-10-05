@@ -10,7 +10,18 @@
 
 uci -q get system.board >/dev/null 2>&1 || uci set system.board=board
 uci set system.board.type='router'
+uci set system.board.def_type='router'
 uci set system.board.workmode='router'
+
+# Preserve Cudy logical product identity when no signed Cudy bdinfo partition
+# exists on the physical Belkin. R62 is verified from the WR1200E emulator
+# kernel log; WR1200E is the donor product identity.
+uci set system.board.rom='R62'
+uci set system.board.model='WR1200E'
+
+# Physical F9K1103 RTL8367R mapping: WAN is switch port 4.
+# This is a hardware translation; the Cudy UI/runtime remains unchanged.
+uci set system.board.wan_port='4'
 
 # WR1200E R62 stock defaults force 4 Ethernet ports.
 # F9K1103 has 1 WAN + 4 LAN = 5 physical ports.  Physical switch/VLAN
