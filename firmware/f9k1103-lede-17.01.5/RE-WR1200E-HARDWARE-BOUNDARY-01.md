@@ -103,3 +103,39 @@ Access-safety changes, if needed for the first physical candidate, must be isola
 - WR1200E donor ELF ABI as a complete set: **AUDIT_PENDING**
 - donor bdinfo on F9K1103 factory layout: **TARGET_REQUIRED**
 - full rootfs candidate: **NON_FLASHABLE**
+
+
+## Unprovisioned firstboot access safety
+
+Exact WR1200E R62 / 2.4.25 donor evidence from `11_fix_passwd`:
+
+```sh
+[ "$(bdinfo dbg)" == OK -o "$(uci -q get system.@system[0].ttylogin)" == 1 ] || {
+    newpasswd="$(echo -n $(bdinfo fuuid)$(bdinfo hmac) | sha256sum | cut -f1 -d' ')"
+    (echo "$newpasswd"; sleep 1 ; echo "$newpasswd") | passwd root
+    uci set system.@system[0].ttylogin='1'
+    uci commit system
+}
+```
+
+The F9K1103 has no Cudy-signed `bdinfo` MTD partition. With the original
+Cudy bdinfo/libbdinfo retained, `checkuuid` is therefore not allowed to be
+faked as OK and `fuuid/hmac` may be empty.
+
+To avoid replacing the known target recovery credential with SHA256(empty):
+
+- preserve the boot-proven target `/etc/shadow` data file;
+- install target-only `10zz-f9k1103-unprovisioned-access`;
+- it calls the original Cudy `bdinfo checkuuid`;
+- if provisioning is valid, it does nothing;
+- if provisioning is not valid, it sets only `system.@system[0].ttylogin=1`;
+- the donor `11_fix_passwd` remains byte-identical and exits via its own stock condition.
+
+This is a target precondition adapter, not a replacement of Cudy authentication
+code or Cudy BusyBox.
+
+Classification:
+- Cudy `11_fix_passwd`: **CUDY_PINNED / BYTE_IDENTICAL**
+- target `/etc/shadow`: **TARGET_OWNED_RECOVERY_DATA**
+- `10zz-f9k1103-unprovisioned-access`: **ADAPTER_REQUIRED**
+- Cudy `bdinfo checkuuid`: **NOT_FAKED**
