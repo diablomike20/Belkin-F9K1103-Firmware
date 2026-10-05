@@ -144,3 +144,86 @@ Never merge the accumulated root-session / `auth_allowed` / uhttpd-Lua-handler l
 Every future runtime change must satisfy:
 
 `exact current source -> exact working donor -> diff -> proven cause -> minimal port/adapter -> verify`
+
+
+## Probe-03 current-target closure — mcore/Devices
+
+Current physical target capture:
+
+- `/usr/lib/lua/mcore.lua` SHA-256:
+  `8978851ee5d90afd332843268eac287522a1952116a3a56ccfd043006d45dec0`
+- `/usr/lib/lua/luci/util.lua` SHA-256:
+  `780115cf7d9daadc94a301d564928f02b52bc43c24a0541e9f0b92ffac51e196`
+- runtime:
+  `util.shellquote=nil`
+- runtime:
+  `mcore.devlist.ok=false`
+- exception:
+  `/usr/lib/lua/mcore.lua:93: attempt to call field 'shellquote' (a nil value)`
+
+Exact Dashboard stack evidence proves the donor and WIP03 Devices consumer files are byte-identical and both consume `mcore.devlist()`.
+The exact donor/WIP03 `luci.util` contract does not provide `shellquote`.
+
+The target adapter accepts wireless interface names only through:
+`^([%w%._%-]+)%s+ESSID:`
+
+Therefore removing the two nonexistent `util.shellquote()` calls changes no donor-facing contract and closes the observed runtime exception without introducing a helper or wrapper.
+
+Minimal source fix commit:
+`dd2648d8d7645fadae768254778778a4451e5394`
+
+Build/rootfs regression gate commit on the verified recovery branch:
+`e38b651528a429d925a2369c89756766bcf57fb4`
+
+Status:
+**CURRENT_SOURCE_VERIFIED / DONOR_CONTRACT_VERIFIED / DIFF_VERIFIED / CAUSE_VERIFIED / MINIMAL_DELTA_ONLY**
+
+Physical post-fix runtime verification is still required before TARGET_VERIFIED status.
+
+## Probe-03 limitations
+
+Probe-03 successfully established the RAM ubus session value `user=admin` and current live hashes.
+
+Its direct CGI harness did not reproduce uhttpd cookie/session propagation: each route rendered sysauth despite the valid RAM session. Therefore the CGI route outputs are **HARNESS_INVALID** and must not be classified as Dashboard failures.
+
+The old `sysauth lang=nil` messages in logread are historical. The current captured `sysauth.htm` already contains the language guard, broker guard, password-field adapter and bootstrap indexer bridge.
+
+## Exact donor network/Wi-Fi files now inspected
+
+WR1200V2 R26 2.4.23:
+
+- `/etc/uci-defaults/30_wlan`
+  SHA-256 `afc224d991472e5f3eba394bae084a88db4b96da1141541185fe602b41ed273a`
+- `/etc/uci-defaults/01_network`
+  SHA-256 `f66eb8824f2d9555bd1fc74386598113d3fbfd233a21afe3ad7b292843bc0015`
+
+Exact flashed WIP03 runtime adapter:
+
+- `/etc/uci-defaults/95-f9k1103-cudy-runtime`
+  SHA-256 `bf6360eff4cc55cca131e7f520bfb525dc2c087c3d67c59ed84afdec21825c5d`
+
+Findings:
+
+- donor `30_wlan` proves Cudy primary SSID/security defaults for `wlan00/wlan10`;
+- donor `30_wlan` does **not** prove deleting `wireless.radio0.disabled` or `wireless.radio1.disabled`;
+- donor `01_network` creates WISP metadata and WAN metric but does **not** write `network.wan.mode='wan'`.
+
+Therefore the parallel WAN/Wi-Fi runtime commits that added those writes are not accepted into the verified recovery branch yet.
+
+Status:
+**SOURCE_GAP** for the exact donor writer of WAN role metadata and for the exact donor rule responsible for primary-radio enabled state.
+
+## Branch contamination event
+
+The earlier branch `re-f9k1103-cudy-source-first-recovery` received six parallel commits after `dd2648...`, including WAN/Wi-Fi runtime changes. One build-gate commit (`f4c3eab...`) also malformed the build script by concatenating shell lines and duplicating a large section.
+
+That branch is no longer an authoritative recovery source.
+
+Authoritative continuation branch:
+
+`re-f9k1103-cudy-source-first-recovery-verified`
+
+Base:
+`dd2648d8d7645fadae768254778778a4451e5394`
+
+Only proven mcore regression gating has been added after that base.
