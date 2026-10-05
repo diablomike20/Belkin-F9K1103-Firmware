@@ -1,0 +1,103 @@
+name: RE Cudy-first pre-WAN static 12
+
+on:
+  push:
+    branches: [re-f9k1103-wr1200e-cudy-full-rootfs-port]
+    paths:
+      - '.github/workflows/RE-build-cudy-first-prewan-static-12.yml'
+      - 'firmware/f9k1103-lede-17.01.5/RE-build-cudy-first-static-prewan-candidate.sh'
+      - 'firmware/f9k1103-lede-17.01.5/RE-prepare-wr1200e-cudy-first-stage.sh'
+      - 'firmware/f9k1103-lede-17.01.5/cudy-port/RE-*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: re-cudy-first-prewan12-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: re-f9k1103-wr1200e-cudy-full-rootfs-port
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools unzip rsync python3 gh
+
+      - name: Acquire exact donor and boot-proven target
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/re-prewan12 RE-CUDY-FIRST-PREWAN-STATIC-12
+          mkdir -p /tmp/re-prewan12/donor /tmp/re-prewan12/target RE-CUDY-FIRST-PREWAN-STATIC-12
+
+          URL='https://www.cudy.com/cdn/shop/files/WR1200E-R62-2.4.25-20260114-184136-flash.zip?v=12982462962593522136'
+          ZIP_SHA='2e9a8dafc930a2070d45f706ec5d362428475044dcd791232f86eee7b9f4ef21'
+          BIN_SHA='086055b0227910f9ddabbb13bfa6b06a3850105bd46a3572b76116bf5a3043fa'
+
+          curl -fL --retry 3 "$URL" -o /tmp/re-prewan12/donor/donor.zip
+          echo "$ZIP_SHA  /tmp/re-prewan12/donor/donor.zip" | sha256sum -c -
+          unzip -q /tmp/re-prewan12/donor/donor.zip -d /tmp/re-prewan12/donor/unzip
+          BIN="$(find /tmp/re-prewan12/donor/unzip -type f -name '*.bin' | head -n1)"
+          test -n "$BIN"
+          echo "$BIN_SHA  $BIN" | sha256sum -c -
+
+          python3 - "$BIN" <<'PY'
+          import pathlib,sys
+          b=pathlib.Path(sys.argv[1]).read_bytes()
+          i=b.find(b'hsqs')
+          if i<0: raise SystemExit('donor squashfs missing')
+          pathlib.Path('/tmp/re-prewan12/donor/rootfs.squashfs').write_bytes(b[i:])
+          PY
+          sudo unsquashfs -no-progress -d /tmp/re-prewan12/donor/root /tmp/re-prewan12/donor/rootfs.squashfs >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" /tmp/re-prewan12/donor/root
+
+          gh run download 37248840659 \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name F9K1103-CUDY-WIP03-RADIOFIX-FAST-REPACK-V2 \
+            --dir /tmp/re-prewan12/target/artifact
+          TARGET_BIN="$(find /tmp/re-prewan12/target/artifact -type f -name '*sysupgrade.bin' | head -n1)"
+          test -n "$TARGET_BIN"
+          echo '1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560  '"$TARGET_BIN" | sha256sum -c -
+          cp "$TARGET_BIN" /tmp/re-prewan12/target/base.bin
+
+      - name: Build PRE-WAN static image
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash firmware/f9k1103-lede-17.01.5/RE-build-cudy-first-static-prewan-candidate.sh \
+            /tmp/re-prewan12/donor/root \
+            /tmp/re-prewan12/target/base.bin \
+            RE-CUDY-FIRST-PREWAN-STATIC-12
+
+      - name: Final static gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          O=RE-CUDY-FIRST-PREWAN-STATIC-12
+          grep -q '^STATUS=PREWAN_STATIC_CANDIDATE$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^FLASH_AUTHORIZATION=NO$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^DO_NOT_FLASH=YES$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^CUDY_BUSYBOX=CUDY_PINNED_NEVER_REPLACE$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^WAN_KERNEL_COMPAT=DELIBERATELY_PENDING$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^VALIDATION=PASS$' "$O/RE-STATIC-VALIDATION.txt"
+          IMG="$(find "$O" -maxdepth 1 -type f -name 'RE-*-sysupgrade.bin' -print -quit)"
+          test -s "$IMG"
+          tar -czf RE-CUDY-FIRST-PREWAN-STATIC-12.tar.gz "$O"
+          sha256sum RE-CUDY-FIRST-PREWAN-STATIC-12.tar.gz > RE-CUDY-FIRST-PREWAN-STATIC-12.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-CUDY-FIRST-PREWAN-STATIC-12
+          path: |
+            RE-CUDY-FIRST-PREWAN-STATIC-12.tar.gz
+            RE-CUDY-FIRST-PREWAN-STATIC-12.tar.gz.sha256
