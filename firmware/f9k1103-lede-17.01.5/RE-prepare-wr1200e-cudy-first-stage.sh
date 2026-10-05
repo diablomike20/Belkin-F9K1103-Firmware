@@ -17,11 +17,13 @@ OUT_ROOT="${3:?output rootfs required}"
 
 SELF_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 ADAPTER_SRC="$SELF_DIR/cudy-port/RE-99zz-f9k1103-cudy-hardware"
+PREACCESS_SRC="$SELF_DIR/cudy-port/RE-10zz-f9k1103-unprovisioned-access"
 MCORE_SRC="$SELF_DIR/cudy-port/mcore.lua"
 
 test -d "$DONOR_ROOT"
 test -d "$TARGET_ROOT"
 test -f "$ADAPTER_SRC"
+test -f "$PREACCESS_SRC"
 test -f "$MCORE_SRC"
 
 rm -rf "$OUT_ROOT"
@@ -60,7 +62,10 @@ done
 # The initial physical interface topology must come from the boot-verified
 # F9K1103 baseline. Cudy uci-defaults are preserved in OUT_ROOT and will
 # apply Cudy semantics on top of these target physical objects.
-for rel in   etc/config/network   etc/config/wireless
+for rel in \
+  etc/config/network \
+  etc/config/wireless \
+  etc/shadow
 do
   copy_target_path "$rel"
 done
@@ -100,6 +105,28 @@ do
   printf '%s  %s\n' "$donor_sha" "$rel" >> "$OUT_ROOT/RE-CUDY-PINNED-SHA256.txt"
 done
 
+# Recovery credential data is target-owned. This is deliberately data-only:
+# donor BusyBox, passwd utility and donor 11_fix_passwd remain Cudy-original.
+test -f "$TARGET_ROOT/etc/shadow" || { echo "ERROR: target shadow missing" >&2; exit 1; }
+test -f "$OUT_ROOT/etc/shadow" || { echo "ERROR: staged shadow missing" >&2; exit 1; }
+TARGET_SHADOW_SHA256="$(sha256sum "$TARGET_ROOT/etc/shadow" | awk '{print $1}')"
+STAGE_SHADOW_SHA256="$(sha256sum "$OUT_ROOT/etc/shadow" | awk '{print $1}')"
+[ "$TARGET_SHADOW_SHA256" = "$STAGE_SHADOW_SHA256" ] || {
+  echo "ERROR: target recovery shadow changed in stage" >&2
+  exit 1
+}
+printf '%s  %s\n' "$STAGE_SHADOW_SHA256" "etc/shadow" >> "$OUT_ROOT/RE-TARGET-CREDENTIAL-SHA256.txt"
+
+# The donor 11_fix_passwd itself is immutable Cudy code.
+test -f "$DONOR_ROOT/etc/uci-defaults/11_fix_passwd"
+test -f "$OUT_ROOT/etc/uci-defaults/11_fix_passwd"
+DONOR_FIXPASS_SHA="$(sha256sum "$DONOR_ROOT/etc/uci-defaults/11_fix_passwd" | awk '{print $1}')"
+STAGE_FIXPASS_SHA="$(sha256sum "$OUT_ROOT/etc/uci-defaults/11_fix_passwd" | awk '{print $1}')"
+[ "$DONOR_FIXPASS_SHA" = "$STAGE_FIXPASS_SHA" ] || {
+  echo "ERROR: Cudy 11_fix_passwd changed" >&2
+  exit 1
+}
+
 # The exact donor bdinfo remains untouched here. Its hardware data access is
 # audited separately. Do not silently replace it with the historical reduced
 # shim.
@@ -112,7 +139,10 @@ POLICY=CUDY_FIRST
 DONOR=WR1200E_R62_2.4.25
 TARGET_HARDWARE=F9K1103
 MCORE=TARGET_VERIFIED_ADAPTER
-BDINFO=CUDY_PINNED_ORIGINAL_BACKING_PENDING
+BDINFO=CUDY_PINNED_ORIGINAL_UNPROVISIONED
+BDINFO_CHECKUUID=NOT_FAKED
+ACCESS_SAFETY=TARGET_SHADOW_PRESERVED
+FIRSTBOOT_PASSWORD_GUARD=TARGET_TTYLOGIN_PRECONDITION
 BUSYBOX_POLICY=CUDY_PINNED_NEVER_REPLACE
 EOF
 
