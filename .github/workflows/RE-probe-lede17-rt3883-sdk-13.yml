@@ -1,0 +1,51 @@
+name: RE probe LEDE17 rt3883 SDK 13
+
+on:
+  push:
+    branches: [re-f9k1103-wr1200e-cudy-full-rootfs-port]
+    paths:
+      - '.github/workflows/RE-probe-lede17-rt3883-sdk-13.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe exact historical SDK/toolchain URLs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p RE-LEDE17-RT3883-SDK-PROBE-13
+          BASE='https://archive.openwrt.org/releases/17.01.5/targets/ramips/rt3883'
+          CANDIDATES='
+          lede-sdk-17.01.5-ramips-rt3883_gcc-5.4.0_musl-1.1.16.Linux-x86_64.tar.xz
+          lede-imagebuilder-17.01.5-ramips-rt3883.Linux-x86_64.tar.xz
+          sha256sums
+          config.seed
+          '
+          : > RE-LEDE17-RT3883-SDK-PROBE-13/RE-URL-PROBE.txt
+          for f in $CANDIDATES; do
+            url="$BASE/$f"
+            code="$(curl -L -sS -o /dev/null -w '%{http_code}' --connect-timeout 15 "$url" || true)"
+            printf '%s %s\n' "$code" "$url" | tee -a RE-LEDE17-RT3883-SDK-PROBE-13/RE-URL-PROBE.txt
+          done
+
+          SDK="$BASE/lede-sdk-17.01.5-ramips-rt3883_gcc-5.4.0_musl-1.1.16.Linux-x86_64.tar.xz"
+          if curl -fL --connect-timeout 15 "$SDK" -o /tmp/re-sdk13.tar.xz; then
+            sha256sum /tmp/re-sdk13.tar.xz > RE-LEDE17-RT3883-SDK-PROBE-13/RE-SDK-SHA256.txt
+            tar -tJf /tmp/re-sdk13.tar.xz | head -1000 > RE-LEDE17-RT3883-SDK-PROBE-13/RE-SDK-FILE-LIST.txt
+            echo 'SDK_AVAILABLE=YES' > RE-LEDE17-RT3883-SDK-PROBE-13/RE-SUMMARY.txt
+          else
+            echo 'SDK_AVAILABLE=NO' > RE-LEDE17-RT3883-SDK-PROBE-13/RE-SUMMARY.txt
+          fi
+
+          tar -czf RE-LEDE17-RT3883-SDK-PROBE-13.tar.gz RE-LEDE17-RT3883-SDK-PROBE-13
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-LEDE17-RT3883-SDK-PROBE-13
+          path: RE-LEDE17-RT3883-SDK-PROBE-13.tar.gz
