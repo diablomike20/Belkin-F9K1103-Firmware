@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: re-wr1200e-portnum-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   audit:
     runs-on: ubuntu-22.04
@@ -47,12 +51,29 @@ jobs:
             fi
           done
 
-          grep -R -n -a -E 'ucidef_set_system_board|system\.board\.portnum|system\.board\.ports|wan_port' \
-            "$R" > RE-WR1200E-PORTNUM-CONTRACT-11/RE-PORTNUM-REFERENCES.txt || true
-
-          grep -R -n -a -E \
-            'set[[:space:]]+system\.board\.portnum|system\.board\.portnum=|board\.portnum' \
-            "$R" > RE-WR1200E-PORTNUM-CONTRACT-11/RE-PORTNUM-WRITERS.txt || true
+          python3 - <<'PY'
+          import pathlib,re
+          root=pathlib.Path('/tmp/re-portnum11/root')
+          any_rx=re.compile(rb'ucidef_set_system_board|system\.board\.portnum|system\.board\.ports|wan_port')
+          writer_rx=re.compile(rb'set\s+system\.board\.portnum|system\.board\.portnum=|board\.portnum')
+          refs=[]; writers=[]
+          for p in root.rglob('*'):
+              if not p.is_file() or p.is_symlink(): continue
+              try:
+                  if p.stat().st_size > 8_000_000: continue
+                  b=p.read_bytes()
+              except: continue
+              if any_rx.search(b):
+                  for i,line in enumerate(b.decode('latin1','replace').splitlines(),1):
+                      if any_rx.search(line.encode('latin1','replace')):
+                          refs.append(f'{p.relative_to(root)}:{i}:{line[:1800]}')
+              if writer_rx.search(b):
+                  for i,line in enumerate(b.decode('latin1','replace').splitlines(),1):
+                      if writer_rx.search(line.encode('latin1','replace')):
+                          writers.append(f'{p.relative_to(root)}:{i}:{line[:1800]}')
+          pathlib.Path('RE-WR1200E-PORTNUM-CONTRACT-11/RE-PORTNUM-REFERENCES.txt').write_text('\n'.join(refs)+'\n')
+          pathlib.Path('RE-WR1200E-PORTNUM-CONTRACT-11/RE-PORTNUM-WRITERS.txt').write_text('\n'.join(writers)+'\n')
+          PY
 
           {
             echo '=== ucidef_set_system_board ==='
