@@ -72,8 +72,9 @@ jobs:
             sed -n '1,220p' /tmp/donor-root/usr/lib/lua/luci/sgi/cgi.lua 2>/dev/null || true
           } > /tmp/out/RE-HTTP-CGI-SUMMARY.txt
 
-          sudo cp -a /tmp/out "$GITHUB_WORKSPACE/out-http-cgi"\n          sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE/out-http-cgi"
+          sudo tar -C /tmp -cf "$GITHUB_WORKSPACE/out-http-cgi.tar" out
+          sudo chown "$(id -u):$(id -g)" "$GITHUB_WORKSPACE/out-http-cgi.tar"
       - uses: actions/upload-artifact@v4
         with:
           name: CUDY-HTTP-CGI-COMPARE
-          path: out-http-cgi/
+          path: out-http-cgi.tar
