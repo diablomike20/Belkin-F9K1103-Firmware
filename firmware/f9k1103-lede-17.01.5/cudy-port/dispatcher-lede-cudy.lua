@@ -107,7 +107,7 @@ function authenticator.htmlauth(validator, accs, default, template)
 	local checkuser = (user == "admin") and "root" or user
 
 	if user and validator(checkuser, pass) then
-		return user
+		return checkuser
 	end
 
 	require("luci.i18n")
@@ -387,7 +387,7 @@ function dispatch(request)
 
 						ctx.authsession = sess
 						ctx.authtoken = token
-						ctx.authuser = user
+						ctx.authuser = (user == "root") and "admin" or user
 
 						http.redirect(build_url(unpack(ctx.requestpath)))
 					end
@@ -399,7 +399,7 @@ function dispatch(request)
 		else
 			ctx.authsession = sess
 			ctx.authtoken = token
-			ctx.authuser = user
+			ctx.authuser = (user == "root") and "admin" or user
 		end
 	end
 
