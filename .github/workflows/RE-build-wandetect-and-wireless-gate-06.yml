@@ -120,6 +120,22 @@ jobs:
           printf '\nHOST_CXXFLAGS += -std=gnu++11\n' >> tools/mklibs/Makefile
           tail -n 4 tools/mklibs/Makefile
 
+          # LEDE 17.01.5 host tools predate modern GCC/libstdc++ defaults.
+          # Keep this scoped to HOST tools only.
+          export CXXFLAGS="${CXXFLAGS:-} -std=gnu++11"
+
+          # CMake 3.7.1 relied on an indirect <limits> include that modern
+          # libstdc++ no longer provides. Add the missing standard header to
+          # the host source through an OpenWrt host patch; target code is
+          # untouched.
+          mkdir -p tools/cmake/patches
+          cat > tools/cmake/patches/999-modern-libstdcpp-limits.patch <<'PATCH'
+--- a/Source/cmServerProtocol.cxx
++++ b/Source/cmServerProtocol.cxx
+@@ -1,3 +1,4 @@
++#include <limits>
+PATCH
+
           make -j2 tools/install V=s
           make -j2 toolchain/install V=s
           make -j2 target/linux/compile V=s
