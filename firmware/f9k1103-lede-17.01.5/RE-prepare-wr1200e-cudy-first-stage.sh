@@ -76,8 +76,8 @@ chmod 0755 "$OUT_ROOT/etc/uci-defaults/99-f9k1103-cudy-hardware"
 
 # CUDY-PINNED userspace.
 # /bin/busybox is NEVER_REPLACE by project policy and any hash mismatch is fatal.
-# bdinfo/libbdinfo are also pinned donor-original unless a separately approved
-# compatibility design explicitly preserves their complete Cudy contract.
+# /usr/bin/bdinfo and /usr/lib/libbdinfo.so are CUDY_PINNED_ORIGINAL.
+# Only the read-only data-access backing below their Cudy API may be adapted.
 #
 # bdinfo/libbdinfo are Cudy provisioning/device-identity components.
 # BusyBox is kept from the complete donor userspace as well; do not silently
@@ -111,7 +111,7 @@ POLICY=CUDY_FIRST
 DONOR=WR1200E_R62_2.4.25
 TARGET_HARDWARE=F9K1103
 MCORE=TARGET_VERIFIED_ADAPTER
-BDINFO=DONOR_ORIGINAL_PENDING_COMPATIBILITY
+BDINFO=CUDY_PINNED_ORIGINAL_BACKING_PENDING
 BUSYBOX_POLICY=CUDY_PINNED_NEVER_REPLACE
 EOF
 
