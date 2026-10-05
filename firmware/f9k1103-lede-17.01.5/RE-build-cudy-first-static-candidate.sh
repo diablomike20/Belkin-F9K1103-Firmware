@@ -80,7 +80,11 @@ for rel in bin/busybox usr/bin/bdinfo usr/lib/libbdinfo.so; do
 done
 
 # Cudy WAN userspace must remain donor-original.
-for rel in     sbin/wandetect     etc/hotplug.d/gmac/08-wan-detect     etc/hotplug.d/wandetect/08-wan-detect
+for rel in \
+    sbin/wandetect \
+    etc/hotplug.d/gmac/08-wan-detect \
+    etc/hotplug.d/gmac/10-odhcp6c \
+    etc/hotplug.d/wandetect/08-wan-detect
 do
     [ -f "$DONOR_ROOT/$rel" ] || continue
     dsha="$(sha256sum "$DONOR_ROOT/$rel" | awk '{print $1}')"
