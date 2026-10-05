@@ -31,7 +31,7 @@ STAGE_SCRIPT="$SELF_DIR/RE-prepare-wr1200e-cudy-first-stage.sh"
 test -d "$DONOR_ROOT"
 test -s "$BASE_IMG"
 test -s "$WAN_KO"
-test -x "$STAGE_SCRIPT"
+test -f "$STAGE_SCRIPT"
 test -f "$REPACK"
 
 WORK="${TMPDIR:-/tmp}/re-cudy-first-candidate-01"
@@ -43,7 +43,7 @@ unsquashfs -no-progress -d "$WORK/target-root" "$WORK/base/rootfs.squashfs" >/de
 
 # The stage builder starts from complete Cudy rootfs and restores only the
 # proven F9K1103 hardware boundary.
-"$STAGE_SCRIPT" "$DONOR_ROOT" "$WORK/target-root" "$WORK/stage"
+bash "$STAGE_SCRIPT" "$DONOR_ROOT" "$WORK/target-root" "$WORK/stage"
 
 # Preserve engineering evidence outside the firmware payload. The Cudy rootfs
 # itself must not be polluted with RE checkpoint files.
