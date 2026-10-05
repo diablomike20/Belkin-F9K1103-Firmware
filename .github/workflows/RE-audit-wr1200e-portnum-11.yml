@@ -47,7 +47,12 @@ jobs:
             fi
           done
 
-          grep -R -n -a -E 'ucidef_set_system_board|system\.board\.portnum|system\.board\.ports|wan_port'             "$R/lib/functions" "$R/etc/uci-defaults" "$R/sbin/wandetect" "$R/etc/hotplug.d"             > RE-WR1200E-PORTNUM-CONTRACT-11/RE-PORTNUM-REFERENCES.txt || true
+          grep -R -n -a -E 'ucidef_set_system_board|system\.board\.portnum|system\.board\.ports|wan_port' \
+            "$R" > RE-WR1200E-PORTNUM-CONTRACT-11/RE-PORTNUM-REFERENCES.txt || true
+
+          grep -R -n -a -E \
+            'set[[:space:]]+system\.board\.portnum|system\.board\.portnum=|board\.portnum' \
+            "$R" > RE-WR1200E-PORTNUM-CONTRACT-11/RE-PORTNUM-WRITERS.txt || true
 
           {
             echo '=== ucidef_set_system_board ==='
