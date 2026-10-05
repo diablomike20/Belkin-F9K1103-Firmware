@@ -47,7 +47,7 @@ jobs:
             for p in               usr/lib/lua/luci/http.lua               usr/lib/lua/luci/dispatcher.lua               usr/lib/lua/luci/sgi/cgi.lua               usr/lib/lua/luci/sgi/uhttpd.lua               www/cgi-bin/luci               etc/config/uhttpd               usr/lib/lua/luci/init.lua               usr/lib/lua/luci/config.lua
             do
               if [ -e "$root/$p" ]; then
-                cp -a "$root/$p" "/tmp/out/$side/$(echo "$p" | tr '/' '_')"
+                sudo cp -a "$root/$p" "/tmp/out/$side/$(echo "$p" | tr '/' '_')"
               fi
             done
             find "$root/usr/lib/lua/luci/sgi" -maxdepth 2 -type f -printf '%P %s\n' 2>/dev/null | sort > "/tmp/out/$side/sgi-files.txt" || true
