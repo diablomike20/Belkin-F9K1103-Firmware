@@ -1,0 +1,169 @@
+name: RE residual adapter queue 08
+
+on:
+  push:
+    branches: [re-f9k1103-wr1200e-cudy-full-rootfs-port]
+    paths:
+      - '.github/workflows/RE-audit-residual-adapter-queue-08.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y squashfs-tools unzip
+      - name: Acquire donor and target
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/re08 RE-RESIDUAL-ADAPTER-QUEUE-08
+          mkdir -p /tmp/re08/donor /tmp/re08/target RE-RESIDUAL-ADAPTER-QUEUE-08
+
+          URL='https://www.cudy.com/cdn/shop/files/WR1200E-R62-2.4.25-20260114-184136-flash.zip?v=12982462962593522136'
+          SHA='2e9a8dafc930a2070d45f706ec5d362428475044dcd791232f86eee7b9f4ef21'
+          curl -fL --retry 3 "$URL" -o /tmp/re08/donor.zip
+          echo "$SHA  /tmp/re08/donor.zip" | sha256sum -c -
+          unzip -q /tmp/re08/donor.zip -d /tmp/re08/donor-unzip
+          DBIN="$(find /tmp/re08/donor-unzip -type f -name '*.bin' | head -n1)"
+          python3 - "$DBIN" /tmp/re08/donor.sqfs <<'PY'
+          import pathlib,sys
+          b=pathlib.Path(sys.argv[1]).read_bytes(); i=b.find(b'hsqs')
+          if i<0: raise SystemExit('donor squashfs missing')
+          pathlib.Path(sys.argv[2]).write_bytes(b[i:])
+          PY
+          sudo unsquashfs -no-progress -d /tmp/re08/donor /tmp/re08/donor.sqfs >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" /tmp/re08/donor
+
+          gh run download 37248840659             --repo "${GITHUB_REPOSITORY}"             --name F9K1103-CUDY-WIP03-RADIOFIX-FAST-REPACK-V2             --dir /tmp/re08/target-artifact
+          TBIN="$(find /tmp/re08/target-artifact -type f -name '*sysupgrade.bin' | head -n1)"
+          echo '1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560  '"$TBIN" | sha256sum -c -
+          python3 - "$TBIN" /tmp/re08/target.sqfs <<'PY'
+          import pathlib,sys,struct
+          b=pathlib.Path(sys.argv[1]).read_bytes()
+          size=struct.unpack('>I',b[12:16])[0]
+          i=64+size
+          if b[i:i+4]!=b'hsqs': raise SystemExit('target squashfs missing')
+          n=struct.unpack_from('<Q',b,i+40)[0]
+          pathlib.Path(sys.argv[2]).write_bytes(b[i:i+n])
+          PY
+          sudo unsquashfs -no-progress -d /tmp/re08/target /tmp/re08/target.sqfs >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" /tmp/re08/target
+
+      - name: Diff exact residual queue
+        shell: bash
+        run: |
+          set -euo pipefail
+          D=/tmp/re08/donor
+          T=/tmp/re08/target
+          O=RE-RESIDUAL-ADAPTER-QUEUE-08
+          cat > /tmp/re08/paths <<'EOF'
+          etc/hotplug.d/gmac/08-wan-detect
+          etc/hotplug.d/gmac/10-odhcp6c
+          etc/hotplug.d/wandetect/08-wan-detect
+          lib/ramips.sh
+          sbin/smp.sh
+          sbin/wandetect
+          usr/bin/bdinfo
+          usr/lib/libbdinfo.so
+          usr/lib/lua/luci/apprpc/eth.lua
+          usr/lib/lua/mcore.lua
+          EOF
+
+          printf 'path\tdonor_sha256\ttarget_sha256\tbyte_identical\tdonor_size\ttarget_size\n'             > "$O/RE-RESIDUAL-EXACT-DIFF.tsv"
+          while read -r rel; do
+            [ -n "$rel" ] || continue
+            ds=''; ts=''; dsz=''; tsz=''; same=NO
+            [ -f "$D/$rel" ] && { ds="$(sha256sum "$D/$rel"|awk '{print $1}')"; dsz="$(stat -c %s "$D/$rel")"; }
+            [ -f "$T/$rel" ] && { ts="$(sha256sum "$T/$rel"|awk '{print $1}')"; tsz="$(stat -c %s "$T/$rel")"; }
+            [ -n "$ds" ] && [ "$ds" = "$ts" ] && same=YES
+            printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$rel" "$ds" "$ts" "$same" "$dsz" "$tsz"               >> "$O/RE-RESIDUAL-EXACT-DIFF.tsv"
+
+            if [ -f "$D/$rel" ]; then
+              dst="$O/RE-DONOR-$(echo "$rel"|tr / _)"
+              case "$(file -b "$D/$rel")" in
+                *ELF*) strings -a "$D/$rel" > "$dst.strings" ;;
+                *) cp "$D/$rel" "$dst" ;;
+              esac
+            fi
+          done < /tmp/re08/paths
+
+          {
+            echo '=== donor callers for smp.sh ==='
+            grep -R -n -a -E '(/sbin/)?smp\.sh|smp\.sh'               "$D/etc" "$D/lib" "$D/usr" "$D/sbin" "$D/bin" 2>/dev/null || true
+            echo
+            echo '=== donor callers /proc/net/wandetect ==='
+            grep -R -n -a '/proc/net/wandetect'               "$D/etc" "$D/lib" "$D/usr" "$D/sbin" "$D/bin" 2>/dev/null || true
+            echo
+            echo '=== target switch / rtl8367 evidence ==='
+            grep -R -n -a -E 'rtl8367|switch0|swconfig|wan_port|lan.*ports'               "$T/etc/board.d" "$T/lib" "$T/etc/config/network" 2>/dev/null | head -400 || true
+          } > "$O/RE-RESIDUAL-CALLER-EVIDENCE.txt"
+
+          # Directly compare text paths when both exist.
+          while read -r rel; do
+            [ -f "$D/$rel" ] && [ -f "$T/$rel" ] || continue
+            file "$D/$rel" | grep -q ELF && continue
+            diff -u "$D/$rel" "$T/$rel"               > "$O/RE-DIFF-$(echo "$rel"|tr / _).txt" || true
+          done < /tmp/re08/paths
+
+      - name: Classify queue
+        shell: bash
+        run: |
+          set -euo pipefail
+          O=RE-RESIDUAL-ADAPTER-QUEUE-08
+          python3 - <<'PY'
+          import csv,pathlib
+          O=pathlib.Path('RE-RESIDUAL-ADAPTER-QUEUE-08')
+          rows=[]
+          with open(O/'RE-RESIDUAL-EXACT-DIFF.tsv') as f:
+              rd=csv.DictReader(f,delimiter='\t')
+              for r in rd:
+                  p=r['path']
+                  if p=='usr/lib/lua/luci/apprpc/eth.lua' and r['byte_identical']=='YES':
+                      cls='CUDY_NATIVE_PASS'
+                      why='donor and boot-proven target are byte-identical'
+                  elif p in ('usr/bin/bdinfo','usr/lib/libbdinfo.so'):
+                      cls='CUDY_PINNED_ORIGINAL'
+                      why='original Cudy API retained; target backing handled below it'
+                  elif p=='usr/lib/lua/mcore.lua':
+                      cls='TARGET_VERIFIED_ADAPTER'
+                      why='physical F9K1103 validation already PASS'
+                  elif p=='lib/ramips.sh':
+                      cls='HARDWARE_REPLACE'
+                      why='physical board detection/MTD identity is target-owned'
+                  elif 'wan-detect' in p or p=='sbin/wandetect':
+                      cls='CUDY_USERSPACE_PRESERVE'
+                      why='Cudy WAN behavior preserved; missing kernel proc ABI supplied target-side'
+                  elif p=='sbin/smp.sh':
+                      cls='REVIEW_HARDWARE_NAMES'
+                      why='contains donor ra0/rai0 hardware names; exact caller evidence bundled'
+                  else:
+                      cls='REVIEW'
+                      why='inspect exact diff/callers'
+                  r['classification']=cls
+                  r['reason']=why
+                  rows.append(r)
+          fields=list(rows[0].keys())
+          with open(O/'RE-RESIDUAL-CLASSIFICATION.csv','w',newline='') as f:
+              w=csv.DictWriter(f,fieldnames=fields);w.writeheader();w.writerows(rows)
+          PY
+          (
+            cd "$O"
+            find . -type f -name 'RE-*' -print0 | sort -z | xargs -0 sha256sum > RE-SHA256SUMS.txt
+          )
+          tar -czf RE-RESIDUAL-ADAPTER-QUEUE-08.tar.gz "$O"
+          sha256sum RE-RESIDUAL-ADAPTER-QUEUE-08.tar.gz > RE-RESIDUAL-ADAPTER-QUEUE-08.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-RESIDUAL-ADAPTER-QUEUE-08
+          path: |
+            RE-RESIDUAL-ADAPTER-QUEUE-08.tar.gz
+            RE-RESIDUAL-ADAPTER-QUEUE-08.tar.gz.sha256
