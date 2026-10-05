@@ -64,6 +64,7 @@ jobs:
           PY
             sudo unsquashfs -no-progress -d "$d/rootfs" "$d/rootfs.squashfs" >/dev/null
             sudo chown -R "$(id -u):$(id -g)" "$d/rootfs"
+            unsquashfs -s "$d/rootfs.squashfs" > "$d/SQUASHFS-SUPERBLOCK.txt"
           done < /tmp/re-cudy-donor-audit/candidates.tsv
 
       - name: Build exact comparison report
@@ -97,6 +98,9 @@ jobs:
               row['zip_sha256']=sha(d/'fw.zip')
               row['bin_sha256']=sha(d/'firmware.bin')
               row['squashfs_offset']=int((d/'SQUASHFS-OFFSET.txt').read_text().strip())
+              sb=read(d/'SQUASHFS-SUPERBLOCK.txt')
+              m=re.search(r'Filesystem size ([0-9.]+) Kbytes \(([0-9]+) bytes\)', sb)
+              row['squashfs_bytes_used']=int(m.group(2)) if m else 0
               row['rootfs_files']=files_tree(root)
               row['rootfs_bytes_unpacked']=size_tree(root)
               for rel,key in [
@@ -159,7 +163,7 @@ jobs:
               detail.write_text('\n'.join([
                   f'ID={id}',f'ZIP_BYTES={row["zip_bytes"]}',f'BIN_BYTES={row["bin_bytes"]}',
                   f'ZIP_SHA256={row["zip_sha256"]}',f'BIN_SHA256={row["bin_sha256"]}',
-                  f'SQUASHFS_OFFSET={row["squashfs_offset"]}',f'ROOTFS_FILES={row["rootfs_files"]}',
+                  f'SQUASHFS_OFFSET={row["squashfs_offset"]}',f'SQUASHFS_BYTES_USED={row["squashfs_bytes_used"]}',f'ROOTFS_FILES={row["rootfs_files"]}',
                   f'ROOTFS_UNPACKED_BYTES={row["rootfs_bytes_unpacked"]}',f'LUCi_BYTES={row["luci_bytes"]}',
                   f'WWW_BYTES={row["www_bytes"]}',f'MODULES_BYTES={row["modules_bytes"]}',
                   f'ELF_COUNT={row["elf_count"]}',f'ELF_ARCH={row["elf_arch"]}',
