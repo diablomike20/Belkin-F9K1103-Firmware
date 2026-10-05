@@ -85,6 +85,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          O=RE-BDINFO-FIRSTBOOT-DEPENDENCIES-09
           python3 - <<'PY'
           import pathlib,re,csv
           O=pathlib.Path('RE-BDINFO-FIRSTBOOT-DEPENDENCIES-09')
