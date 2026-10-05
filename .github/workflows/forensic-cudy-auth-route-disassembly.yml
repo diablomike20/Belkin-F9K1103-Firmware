@@ -1,6 +1,11 @@
 name: Forensic Cudy auth route disassembly
 
 on:
+  push:
+    branches:
+      - f9k1103-cudy-port-wip03-clean-audit
+    paths:
+      - '.github/workflows/forensic-cudy-auth-route-disassembly.yml'
   workflow_dispatch:
 
 permissions:
