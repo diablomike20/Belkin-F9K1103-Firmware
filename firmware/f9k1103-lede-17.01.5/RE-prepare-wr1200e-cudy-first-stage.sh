@@ -16,7 +16,7 @@ TARGET_ROOT="${2:?target rootfs required}"
 OUT_ROOT="${3:?output rootfs required}"
 
 SELF_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-ADAPTER_SRC="$SELF_DIR/cudy-port/RE-99-f9k1103-cudy-hardware"
+ADAPTER_SRC="$SELF_DIR/cudy-port/RE-99zz-f9k1103-cudy-hardware"
 MCORE_SRC="$SELF_DIR/cudy-port/mcore.lua"
 
 test -d "$DONOR_ROOT"
@@ -69,10 +69,11 @@ done
 mkdir -p "$OUT_ROOT/usr/lib/lua"
 cp -a "$MCORE_SRC" "$OUT_ROOT/usr/lib/lua/mcore.lua"
 
-# Install the thin physical adapter after all stock Cudy defaults.
+# Install the thin physical adapter after all stock Cudy defaults. Runtime name
+# intentionally sorts after donor 99_fixwan / 99_oem.
 mkdir -p "$OUT_ROOT/etc/uci-defaults"
-cp -a "$ADAPTER_SRC" "$OUT_ROOT/etc/uci-defaults/99-f9k1103-cudy-hardware"
-chmod 0755 "$OUT_ROOT/etc/uci-defaults/99-f9k1103-cudy-hardware"
+cp -a "$ADAPTER_SRC" "$OUT_ROOT/etc/uci-defaults/99zz-f9k1103-cudy-hardware"
+chmod 0755 "$OUT_ROOT/etc/uci-defaults/99zz-f9k1103-cudy-hardware"
 
 # CUDY-PINNED userspace.
 # /bin/busybox is NEVER_REPLACE by project policy and any hash mismatch is fatal.
