@@ -139,3 +139,24 @@ Classification:
 - target `/etc/shadow`: **TARGET_OWNED_RECOVERY_DATA**
 - `10zz-f9k1103-unprovisioned-access`: **ADAPTER_REQUIRED**
 - Cudy `bdinfo checkuuid`: **NOT_FAKED**
+
+
+## `system.board.portnum` contract
+
+Exact WR1200E R62 / 2.4.25 complete-rootfs audit proves:
+
+- `ucidef_set_system_board()` writes `model`, `rom`, `wan_port`, `def_type`, and `type`;
+- R62 `98-board` writes `system.board.ports=4`;
+- R62 `99_oem` reasserts `system.board.ports=4`;
+- no file in the complete donor rootfs writes `system.board.portnum`;
+- only the Cudy WAN-detect scripts read `system.board.portnum`.
+
+Therefore `portnum` is a legacy/optional consumer input for this donor and is intentionally left unset, exactly as in the stock WR1200E R62 rootfs. The F9K1103 adapter must **not invent `portnum=5`**.
+
+The physical target override remains only:
+
+`system.board.ports=5`
+
+An unset `portnum` follows the donor multi-port WAN-detect branch, matching R62 stock behavior.
+
+Classification: **DONOR_SOURCE_VERIFIED / NO_ADAPTER_REQUIRED**.
