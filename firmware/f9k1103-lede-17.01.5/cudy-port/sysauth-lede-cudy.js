@@ -33,7 +33,7 @@ $(document).ready(function() {
 });
 
 function get_password_input() {
-	const $loginPwd = $('#luci_password_login');
+	const $loginPwd = $('#luci_password_login, #luci_password2').first();
 	const $createPwd = $('#luci_password_create');
 
 	if ($loginPwd.length > 0) {
