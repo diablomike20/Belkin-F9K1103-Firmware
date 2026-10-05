@@ -113,7 +113,9 @@ function authenticator.htmlauth(validator, accs, default, template)
 	require("luci.i18n")
 	require("luci.template")
 	context.path = {}
-	http.status(403, "Forbidden")
+	-- Target-native uhttpd CGI compatibility: render the Cudy login page as
+	-- a normal 200 response.  The donor's vendor-patched uhttpd consumes the
+	-- 403 status internally, while stock LEDE may expose it in the body.
 	luci.template.render(template or "sysauth", {duser=default, fuser=user})
 
 	return false
@@ -389,7 +391,9 @@ function dispatch(request)
 						ctx.authtoken = token
 						ctx.authuser = (user == "root") and "admin" or user
 
-						http.redirect(build_url(unpack(ctx.requestpath)))
+						-- Continue dispatching the same requested page after creating the
+						-- authenticated session.  Avoid the donor 302 dependency here;
+						-- stock LEDE uhttpd does not share the donor vendor patchset.
 					end
 				end
 			else
