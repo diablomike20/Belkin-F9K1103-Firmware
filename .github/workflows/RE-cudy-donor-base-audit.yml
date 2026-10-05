@@ -187,6 +187,142 @@ jobs:
               w=csv.DictWriter(f,fieldnames=summary[0].keys());w.writeheader();w.writerows(summary)
           with open(out/'RE-PAIRWISE-UI-HASH-COMPARISON.csv','w',newline='') as f:
               w=csv.DictWriter(f,fieldnames=pairs[0].keys());w.writeheader();w.writerows(pairs)
+          # WR300S vs WR1200V2 deep wireless/runtime comparison
+          A='WR1200V2_R26_2.4.23'
+          B='WR300S_R93_2.4.25'
+          ra=base/A/'rootfs'
+          rb=base/B/'rootfs'
+
+          def collect_refs(root, needles):
+              rows=[]
+              search_roots=[
+                  root/'etc', root/'lib', root/'bin', root/'sbin',
+                  root/'usr/lib/lua', root/'usr/bin', root/'usr/sbin', root/'www'
+              ]
+              for sr in search_roots:
+                  if not sr.exists(): continue
+                  for p in sr.rglob('*'):
+                      if not p.is_file() or p.is_symlink(): continue
+                      try:
+                          b=p.read_bytes()
+                      except: continue
+                      if len(b)>5_000_000: continue
+                      txt=b.decode('latin1','ignore')
+                      matched=[n for n in needles if n in txt]
+                      if matched:
+                          rows.append((str(p.relative_to(root)), ','.join(matched)))
+              return rows
+
+          needles=['radio0','radio1','wlan00','wlan10','wlan1','wlan0','5g','5G','2.4G','mt7663','mt761','iwinfo','wifi-iface','wifi-device']
+          refsA=collect_refs(ra,needles)
+          refsB=collect_refs(rb,needles)
+
+          with open(out/'RE-WR1200V2-vs-WR300S-WIRELESS-REFS.csv','w',newline='') as f:
+              w=csv.writer(f); w.writerow(['model','path','matched_tokens'])
+              for p,m in refsA: w.writerow([A,p,m])
+              for p,m in refsB: w.writerow([B,p,m])
+
+          # compare exact important files and text diffs
+          important=[
+              'bin/config_generate',
+              'etc/uci-defaults/01_network',
+              'etc/uci-defaults/30_wlan',
+              'etc/uci-defaults/40_luci-wireless',
+              'usr/lib/lua/luci/model/network.lua',
+              'usr/lib/lua/luci/tools/status.lua',
+              'usr/lib/lua/luci/model/cbi/admin_network/wifi.lua',
+              'usr/lib/lua/luci/controller/admin/network.lua',
+              'usr/lib/lua/luci/description.lua',
+              'usr/lib/lua/luci/gui.lua',
+          ]
+          import difflib
+          report=[]
+          for rel in important:
+              pa,pb=ra/rel,rb/rel
+              ea,eb=pa.exists(),pb.exists()
+              report += [f'=== {rel} ===',f'WR1200V2_EXISTS={ea}',f'WR300S_EXISTS={eb}']
+              if ea: report.append('WR1200V2_SHA256='+sha(pa))
+              if eb: report.append('WR300S_SHA256='+sha(pb))
+              if ea and eb:
+                  ba,bb=pa.read_bytes(),pb.read_bytes()
+                  report.append('BYTE_IDENTICAL='+str(ba==bb))
+                  # only produce unified diff if both are textual enough
+                  try:
+                      ta=ba.decode('utf-8')
+                      tb=bb.decode('utf-8')
+                      if ta!=tb:
+                          report += list(difflib.unified_diff(
+                              ta.splitlines(),tb.splitlines(),
+                              fromfile='WR1200V2/'+rel,tofile='WR300S/'+rel,lineterm=''
+                          ))[:2000]
+                  except: pass
+              report.append('')
+          (out/'RE-WR1200V2-vs-WR300S-IMPORTANT-FILE-DIFF.txt').write_text('\n'.join(report)+'\n')
+
+          # file ownership deltas under the wireless/network/runtime relevant tree
+          trees=['etc/uci-defaults','lib/wifi','usr/lib/lua/luci','etc/init.d','usr/bin','usr/sbin']
+          def manifest_subset(root):
+              m={}
+              for rel in trees:
+                  p=root/rel
+                  if not p.exists(): continue
+                  for f in p.rglob('*'):
+                      if f.is_file() and not f.is_symlink():
+                          m[str(f.relative_to(root))]=sha(f)
+              return m
+          ma,mb=manifest_subset(ra),manifest_subset(rb)
+          paths=sorted(set(ma)|set(mb))
+          with open(out/'RE-WR1200V2-vs-WR300S-RUNTIME-MANIFEST-DIFF.csv','w',newline='') as f:
+              w=csv.writer(f); w.writerow(['path','wr1200v2','wr300s','class'])
+              for p in paths:
+                  a,b=ma.get(p),mb.get(p)
+                  cls='IDENTICAL' if a and b and a==b else 'DIFFERENT' if a and b else 'WR1200_ONLY' if a else 'WR300S_ONLY'
+                  w.writerow([p,a or '',b or '',cls])
+
+          # radio-specific shell and UCI creation evidence
+          def grep_lines(root, tokens):
+              outrows=[]
+              for sr in [root/'etc',root/'lib',root/'bin',root/'usr/lib/lua']:
+                  if not sr.exists(): continue
+                  for p in sr.rglob('*'):
+                      if not p.is_file() or p.is_symlink(): continue
+                      try: txt=p.read_text(errors='ignore')
+                      except: continue
+                      for i,line in enumerate(txt.splitlines(),1):
+                          if any(t in line for t in tokens):
+                              outrows.append((str(p.relative_to(root)),i,line[:1000]))
+              return outrows
+          toks=['radio1','wlan10','wlan1','mt7663','mt761','5G','5g','HT80','VHT','802.11ac','11ac']
+          ga,gb=grep_lines(ra,toks),grep_lines(rb,toks)
+          with open(out/'RE-WR1200V2-vs-WR300S-RADIO1-5G-EVIDENCE.csv','w',newline='') as f:
+              w=csv.writer(f);w.writerow(['model','path','line','text'])
+              for p,i,l in ga:w.writerow([A,p,i,l])
+              for p,i,l in gb:w.writerow([B,p,i,l])
+
+          # daemon/service comparison
+          service_names=['cmagent','cmsd','mosquitto','hcshd','pingcheck','mcore','bdinfo','hyfibr']
+          with open(out/'RE-WR1200V2-vs-WR300S-SERVICE-COMPARISON.csv','w',newline='') as f:
+              w=csv.writer(f);w.writerow(['service','wr1200v2_paths','wr300s_paths'])
+              for n in service_names:
+                  ha=sorted(str(p.relative_to(ra)) for p in ra.rglob(n) if p.is_file() or p.is_symlink())
+                  hb=sorted(str(p.relative_to(rb)) for p in rb.rglob(n) if p.is_file() or p.is_symlink())
+                  w.writerow([n,';'.join(ha),';'.join(hb)])
+
+          # concise machine-derived verdict inputs
+          verdict=[]
+          verdict.append('WR1200V2_vs_WR300S_DEEP_WIRELESS_RUNTIME')
+          verdict.append(f'WR1200V2_UI_FILES={len(manifests[A])}')
+          verdict.append(f'WR300S_UI_FILES={len(manifests[B])}')
+          common=set(manifests[A])&set(manifests[B])
+          same=sum(manifests[A][p]==manifests[B][p] for p in common)
+          verdict.append(f'COMMON_UI_PATHS={len(common)}')
+          verdict.append(f'IDENTICAL_COMMON_UI={same}')
+          verdict.append(f'IDENTICAL_COMMON_UI_PCT={100*same/len(common):.2f}')
+          verdict.append(f'WR1200_RADIO1_5G_REFS={len(ga)}')
+          verdict.append(f'WR300S_RADIO1_5G_REFS={len(gb)}')
+          verdict.append('NOTE=Counts are evidence leads; exact ownership requires reading the generated CSV/diffs.')
+          (out/'RE-WR1200V2-vs-WR300S-DEEP-SUMMARY.txt').write_text('\n'.join(verdict)+'\n')
+
           # exact excerpts/default source for review
           for id in ids:
               root=base/id/'rootfs'
