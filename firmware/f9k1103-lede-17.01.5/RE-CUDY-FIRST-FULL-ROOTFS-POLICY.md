@@ -37,6 +37,23 @@ Preserve whenever ABI/runtime permits:
 
 Do not replace a Cudy component merely because an OpenWrt equivalent exists.
 
+## Hard invariant — Cudy BusyBox
+
+`/bin/busybox` is **CUDY_PINNED / NEVER_REPLACE**.
+
+This is not a conditional compatibility preference. It is a project invariant:
+
+- never replace it with target LEDE BusyBox;
+- never replace it with OpenWrt BusyBox;
+- never rebuild it from another BusyBox configuration as a substitute;
+- never allow a package/install/build step to overwrite it;
+- never use target BusyBox as a fallback.
+
+Every staging/build pipeline must verify the final `/bin/busybox` SHA-256 against the exact selected Cudy donor and **HARD_FAIL** on any mismatch.
+
+If a future incompatibility is traced to BusyBox behavior, adapt the surrounding target/kernel contract while preserving the Cudy BusyBox binary. A BusyBox replacement requires a new explicit project decision from the user; it is forbidden by the current policy.
+
+
 ## Target-owned hardware boundary
 
 The following physical truth remains F9K1103-owned:
