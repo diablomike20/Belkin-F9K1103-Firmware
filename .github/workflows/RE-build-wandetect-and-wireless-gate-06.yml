@@ -7,7 +7,6 @@ on:
       - '.github/workflows/RE-build-wandetect-and-wireless-gate-06.yml'
       - 'firmware/f9k1103-lede-17.01.5/RE-wandetect-proc-compat.c'
       - 'firmware/f9k1103-lede-17.01.5/RE-wandetect-proc-compat-Makefile'
-      - 'firmware/f9k1103-lede-17.01.5/RE-prepare-wr1200e-cudy-first-stage.sh'
       - 'firmware/f9k1103-lede-17.01.5/RE-m4-1.4.18-glibc-sigstksz.patch'
   workflow_dispatch:
 
