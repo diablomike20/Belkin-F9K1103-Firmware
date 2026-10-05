@@ -1,0 +1,315 @@
+name: RE WR1200E full rootfs compatibility
+
+on:
+  push:
+    branches: [re-f9k1103-wr1200e-cudy-full-rootfs-port]
+    paths:
+      - '.github/workflows/RE-audit-wr1200e-full-rootfs-compatibility.yml'
+      - 'firmware/f9k1103-lede-17.01.5/RE-CUDY-FIRST-FULL-ROOTFS-POLICY.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install forensic tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools unzip binutils file python3
+
+      - name: Acquire exact donor and physical target baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/re-fullroot RE-WR1200E-FULL-ROOTFS-COMPAT-01
+          mkdir -p /tmp/re-fullroot/donor /tmp/re-fullroot/target RE-WR1200E-FULL-ROOTFS-COMPAT-01
+
+          DONOR_URL='https://www.cudy.com/cdn/shop/files/WR1200E-R62-2.4.25-20260114-184136-flash.zip?v=12982462962593522136'
+          DONOR_ZIP_SHA='2e9a8dafc930a2070d45f706ec5d362428475044dcd791232f86eee7b9f4ef21'
+          DONOR_BIN_SHA='086055b0227910f9ddabbb13bfa6b06a3850105bd46a3572b76116bf5a3043fa'
+
+          curl -fL --retry 3 "$DONOR_URL" -o /tmp/re-fullroot/donor/donor.zip
+          echo "$DONOR_ZIP_SHA  /tmp/re-fullroot/donor/donor.zip" | sha256sum -c -
+          unzip -q /tmp/re-fullroot/donor/donor.zip -d /tmp/re-fullroot/donor/unzip
+          DONOR_BIN="$(find /tmp/re-fullroot/donor/unzip -type f -name '*.bin' | head -n1)"
+          test -n "$DONOR_BIN"
+          echo "$DONOR_BIN_SHA  $DONOR_BIN" | sha256sum -c -
+
+          python3 - "$DONOR_BIN" /tmp/re-fullroot/donor/rootfs.squashfs <<'PY'
+          import pathlib,sys
+          b=pathlib.Path(sys.argv[1]).read_bytes()
+          i=b.find(b'hsqs')
+          if i < 0: raise SystemExit("donor squashfs not found")
+          pathlib.Path('/tmp/re-fullroot/donor/SQUASHFS_OFFSET.txt').write_text(str(i)+"\n")
+          pathlib.Path(sys.argv[2]).write_bytes(b[i:])
+          PY
+          sudo unsquashfs -no-progress -d /tmp/re-fullroot/donor/rootfs /tmp/re-fullroot/donor/rootfs.squashfs >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" /tmp/re-fullroot/donor/rootfs
+
+          # Exact physically flashed WIP03 RADIOFIX artifact.
+          # This is used only as the known-booting F9K1103 ABI/runtime baseline.
+          gh run download 37248840659             --repo "${GITHUB_REPOSITORY}"             --name F9K1103-CUDY-WIP03-RADIOFIX-FAST-REPACK-V2             --dir /tmp/re-fullroot/target/artifact
+          TARGET_BIN="$(find /tmp/re-fullroot/target/artifact -type f -name '*sysupgrade.bin' | head -n1)"
+          test -n "$TARGET_BIN"
+          echo '1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560  '"$TARGET_BIN" | sha256sum -c -
+
+          python3 - "$TARGET_BIN" /tmp/re-fullroot/target/rootfs.squashfs <<'PY'
+          import pathlib,sys
+          b=pathlib.Path(sys.argv[1]).read_bytes()
+          i=b.find(b'hsqs')
+          if i < 0: raise SystemExit("target squashfs not found")
+          pathlib.Path('/tmp/re-fullroot/target/SQUASHFS_OFFSET.txt').write_text(str(i)+"\n")
+          pathlib.Path(sys.argv[2]).write_bytes(b[i:])
+          PY
+          sudo unsquashfs -no-progress -d /tmp/re-fullroot/target/rootfs /tmp/re-fullroot/target/rootfs.squashfs >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" /tmp/re-fullroot/target/rootfs
+
+      - name: Classify complete donor rootfs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import csv,hashlib,json,os,pathlib,re,stat,struct,subprocess,collections
+          D=pathlib.Path('/tmp/re-fullroot/donor/rootfs')
+          T=pathlib.Path('/tmp/re-fullroot/target/rootfs')
+          O=pathlib.Path('RE-WR1200E-FULL-ROOTFS-COMPAT-01')
+          O.mkdir(exist_ok=True)
+
+          def sha(p):
+              h=hashlib.sha256()
+              with open(p,'rb') as f:
+                  for b in iter(lambda:f.read(1024*1024),b''): h.update(b)
+              return h.hexdigest()
+
+          def iself(p):
+              try:
+                  with open(p,'rb') as f:return f.read(4)==b'\x7fELF'
+              except:return False
+
+          def cmd(args):
+              try:return subprocess.check_output(args,text=True,stderr=subprocess.STDOUT)
+              except:return ''
+
+          def elfinfo(p):
+              hdr=cmd(['readelf','-h',str(p)])
+              dyn=cmd(['readelf','-d',str(p)])
+              interp=cmd(['readelf','-l',str(p)])
+              needed=re.findall(r'\(NEEDED\).*?\[(.*?)\]',dyn)
+              mach=re.search(r'Machine:\s*(.+)',hdr)
+              flags=re.search(r'Flags:\s*(.+)',hdr)
+              cls=re.search(r'Class:\s*(.+)',hdr)
+              data=re.search(r'Data:\s*(.+)',hdr)
+              ip=re.search(r'Requesting program interpreter:\s*([^\]]+)',interp)
+              return {
+                  'class':cls.group(1).strip() if cls else '',
+                  'data':data.group(1).strip() if data else '',
+                  'machine':mach.group(1).strip() if mach else '',
+                  'flags':flags.group(1).strip() if flags else '',
+                  'interp':ip.group(1).strip() if ip else '',
+                  'needed':needed
+              }
+
+          hard_prefixes=(
+              'lib/modules/','boot/','etc/board.d/','lib/preinit/',
+              'lib/upgrade/','lib/firmware/','etc/hotplug.d/firmware/',
+          )
+          safety_prefixes=(
+              'dev/','proc/','sys/','tmp/','overlay/','rom/',
+          )
+          adapter_exact={
+              'etc/config/network','etc/config/wireless',
+              'etc/uci-defaults/02_network','etc/uci-defaults/01_network',
+              'etc/uci-defaults/30_wlan','etc/uci-defaults/99_oem',
+              'lib/ramips.sh','usr/bin/bdinfo','usr/lib/lua/mcore.lua'
+          }
+          hw_tokens=[
+              b'mt7628',b'mt7663',b'mt761',b'ralink',b'ra0',b'rai0',
+              b'/proc/rt',b'mii_mgr',b'iwpriv',b'factory',b'eeprom',
+              b'/sys/class/gpio',b'/dev/mtd'
+          ]
+
+          target_libs=collections.defaultdict(list)
+          donor_libs=collections.defaultdict(list)
+          for root,bucket in ((T,target_libs),(D,donor_libs)):
+              for p in root.rglob('*'):
+                  if p.is_file() and not p.is_symlink() and (p.name.endswith('.so') or '.so.' in p.name):
+                      bucket[p.name].append(str(p.relative_to(root)))
+
+          rows=[]
+          elfs=[]
+          counts=collections.Counter()
+          for p in sorted(D.rglob('*')):
+              rel=str(p.relative_to(D))
+              if p.is_symlink():
+                  typ='symlink'; size=0; digest=''; link=os.readlink(p)
+              elif p.is_file():
+                  typ='file'; size=p.stat().st_size; digest=sha(p); link=''
+              elif p.is_dir():
+                  continue
+              else:
+                  typ='special'; size=0; digest=''; link=''
+
+              cls='NATIVE_CANDIDATE'
+              reason='Cudy-owned by default'
+              if rel.startswith(safety_prefixes) or typ=='special':
+                  cls='EXCLUDE_SAFETY'; reason='runtime pseudo-filesystem or special node'
+              elif rel.startswith(hard_prefixes):
+                  cls='HARDWARE_REPLACE'; reason='kernel/board/firmware hardware boundary'
+              elif rel in adapter_exact:
+                  cls='ADAPTER_REQUIRED'; reason='physical board/network/radio identity boundary'
+
+              target=T/rel
+              target_exists=target.exists() or target.is_symlink()
+              identical=False
+              target_sha=''
+              if typ=='file' and target.is_file() and not target.is_symlink():
+                  target_sha=sha(target); identical=(target_sha==digest)
+
+              hardware_strings=[]
+              elf={}
+              unresolved=[]
+              if typ=='file':
+                  try:b=p.read_bytes()
+                  except:b=b''
+                  hardware_strings=[x.decode('ascii','ignore') for x in hw_tokens if x.lower() in b.lower()]
+                  if hardware_strings and cls=='NATIVE_CANDIDATE':
+                      cls='ADAPTER_REQUIRED';reason='contains donor hardware-facing tokens: '+','.join(hardware_strings[:6])
+                  if iself(p):
+                      elf=elfinfo(p)
+                      unresolved=[n for n in elf['needed'] if n not in donor_libs and n not in target_libs]
+                      abi_ok=('MIPS' in elf['machine'] and 'ELF32' in elf['class'] and 'little endian' in elf['data'].lower())
+                      if not abi_ok and cls=='NATIVE_CANDIDATE':
+                          cls='ADAPTER_REQUIRED';reason='ELF ABI differs from target MIPS32 little-endian baseline'
+                      elif unresolved and cls=='NATIVE_CANDIDATE':
+                          cls='ADAPTER_REQUIRED';reason='unresolved dynamic dependencies: '+','.join(unresolved)
+                      elfs.append({
+                          'path':rel,'classification':cls,'size':size,
+                          **elf,'unresolved':';'.join(unresolved),
+                          'target_path_exists':target_exists,
+                          'target_identical':identical
+                      })
+
+              counts[cls]+=1
+              rows.append({
+                  'path':rel,'type':typ,'size':size,'sha256':digest,'link_target':link,
+                  'classification':cls,'reason':reason,
+                  'target_path_exists':target_exists,'target_sha256':target_sha,
+                  'byte_identical_to_target':identical,
+                  'hardware_tokens':';'.join(hardware_strings)
+              })
+
+          with open(O/'RE-FULL-ROOTFS-CLASSIFICATION.csv','w',newline='') as f:
+              w=csv.DictWriter(f,fieldnames=rows[0].keys());w.writeheader();w.writerows(rows)
+          with open(O/'RE-DONOR-ELF-ABI.csv','w',newline='') as f:
+              fields=['path','classification','size','class','data','machine','flags','interp','needed','unresolved','target_path_exists','target_identical']
+              w=csv.DictWriter(f,fieldnames=fields);w.writeheader()
+              for r in elfs:
+                  q=dict(r);q['needed']=';'.join(q['needed']);w.writerow(q)
+
+          # Build a non-flashable staged userspace tree: complete donor minus exact
+          # target-owned hardware/safety objects. Adapters are NOT replaced here.
+          stage=pathlib.Path('/tmp/re-fullroot/stage')
+          if stage.exists(): subprocess.check_call(['sudo','rm','-rf',str(stage)])
+          subprocess.check_call(['sudo','cp','-a',str(D),str(stage)])
+          subprocess.check_call(['sudo','chown','-R',f'{os.getuid()}:{os.getgid()}',str(stage)])
+          for r in rows:
+              if r['classification'] not in ('HARDWARE_REPLACE','EXCLUDE_SAFETY'): continue
+              x=stage/r['path']
+              try:
+                  if x.is_symlink() or x.is_file(): x.unlink()
+                  elif x.is_dir(): subprocess.call(['rm','-rf',str(x)])
+              except FileNotFoundError: pass
+
+          # Exact target-owned hardware layer copied from known booting WIP03 baseline.
+          replace_paths=[
+              'lib/modules','lib/firmware','etc/board.d','lib/preinit','lib/upgrade',
+              'lib/ramips.sh'
+          ]
+          copied=[]
+          for rel in replace_paths:
+              src=T/rel;dst=stage/rel
+              if not src.exists() and not src.is_symlink(): continue
+              subprocess.call(['rm','-rf',str(dst)])
+              dst.parent.mkdir(parents=True,exist_ok=True)
+              subprocess.check_call(['cp','-a',str(src),str(dst)])
+              copied.append(rel)
+
+          # Do not silently replace ADAPTER_REQUIRED files. Existing target-verified
+          # mcore is stored separately for later explicit integration.
+          adapter_dir=O/'RE-VERIFIED-ADAPTERS'
+          adapter_dir.mkdir()
+          m=T/'usr/lib/lua/mcore.lua'
+          if m.exists():
+              (adapter_dir/'RE-target-current-mcore.lua').write_bytes(m.read_bytes())
+
+          # Size + exact squashfs dry-run of stage. This is NOT a sysupgrade image.
+          subprocess.check_call([
+              'mksquashfs',str(stage),str(O/'RE-WR1200E-CUDY-FIRST-STAGE.squashfs'),
+              '-noappend','-comp','xz','-b','262144','-no-progress'
+          ],stdout=subprocess.DEVNULL)
+          sq=O/'RE-WR1200E-CUDY-FIRST-STAGE.squashfs'
+
+          summary=[
+              'RE-WR1200E-FULL-ROOTFS-COMPAT-01',
+              'DONOR=WR1200E R62 2.4.25',
+              'TARGET_BASELINE=physical WIP03 RADIOFIX',
+              'TARGET_SHA256=1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560',
+              'POLICY=CUDY-FIRST / TARGET-ADAPTER-ONLY-WHERE-PROVEN',
+              *[f'{k}={counts[k]}' for k in ('NATIVE_CANDIDATE','ADAPTER_REQUIRED','HARDWARE_REPLACE','EXCLUDE_SAFETY')],
+              f'DONOR_ELF_COUNT={len(elfs)}',
+              f'UNRESOLVED_ELF_COUNT={sum(bool(x["unresolved"]) for x in elfs)}',
+              f'STAGE_SQUASHFS_BYTES={sq.stat().st_size}',
+              'TARGET_HARDWARE_PATHS_COPIED='+','.join(copied),
+              'STAGE_STATUS=NON_FLASHABLE_COMPATIBILITY_ARTIFACT',
+              'NOTE=ADAPTER_REQUIRED objects remain donor-original in the stage and need explicit evidence before replacement.'
+          ]
+          (O/'RE-SUMMARY.txt').write_text('\n'.join(summary)+'\n')
+
+          # Highest priority adapter queue.
+          aq=[r for r in rows if r['classification']=='ADAPTER_REQUIRED']
+          with open(O/'RE-ADAPTER-QUEUE.csv','w',newline='') as f:
+              w=csv.DictWriter(f,fieldnames=rows[0].keys());w.writeheader();w.writerows(aq)
+
+          # Manifest stage, preserving evidence of exactly what would enter userspace.
+          manifest=[]
+          for p in sorted(stage.rglob('*')):
+              if p.is_file() and not p.is_symlink():
+                  manifest.append(f'{sha(p)}  {p.relative_to(stage)}')
+              elif p.is_symlink():
+                  manifest.append(f'SYMLINK->{os.readlink(p)}  {p.relative_to(stage)}')
+          (O/'RE-STAGE-MANIFEST.txt').write_text('\n'.join(manifest)+'\n')
+          PY
+
+      - name: Static gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          O=RE-WR1200E-FULL-ROOTFS-COMPAT-01
+          grep -q '^POLICY=CUDY-FIRST' "$O/RE-SUMMARY.txt"
+          grep -q '^STAGE_STATUS=NON_FLASHABLE_COMPATIBILITY_ARTIFACT' "$O/RE-SUMMARY.txt"
+          test -s "$O/RE-FULL-ROOTFS-CLASSIFICATION.csv"
+          test -s "$O/RE-DONOR-ELF-ABI.csv"
+          test -s "$O/RE-ADAPTER-QUEUE.csv"
+          test -s "$O/RE-STAGE-MANIFEST.txt"
+          test -s "$O/RE-WR1200E-CUDY-FIRST-STAGE.squashfs"
+          (
+            cd "$O"
+            sha256sum RE-* > RE-SHA256SUMS.txt
+          )
+          tar -czf RE-WR1200E-FULL-ROOTFS-COMPAT-01.tar.gz "$O"
+          sha256sum RE-WR1200E-FULL-ROOTFS-COMPAT-01.tar.gz > RE-WR1200E-FULL-ROOTFS-COMPAT-01.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-WR1200E-FULL-ROOTFS-COMPAT-01
+          path: |
+            RE-WR1200E-FULL-ROOTFS-COMPAT-01.tar.gz
+            RE-WR1200E-FULL-ROOTFS-COMPAT-01.tar.gz.sha256
