@@ -81,6 +81,7 @@ fi
 uci -q get wireless.radio0 >/dev/null 2>&1 && uci set wireless.radio0.band='2g'
 uci -q get wireless.radio1 >/dev/null 2>&1 && uci set wireless.radio1.band='5g'
 
+uci commit network
 uci commit system
 uci commit luci
 uci commit cmagent
