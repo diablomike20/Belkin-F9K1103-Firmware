@@ -30,8 +30,10 @@ uci -q get cmsd.cloud >/dev/null || uci set cmsd.cloud=cloud
 uci set cmsd.cloud.enabled='0'
 
 # Translate LEDE's generated main AP section names into the Cudy router
-# contract.  On this RT3883 family the integrated RT3883 WMAC is the 5 GHz
-# radio (radio0) and the PCI RT3091/3092 is explicitly 2.4 GHz (radio1).
+# contract. TARGET-TEST-01 on the physical F9K1103 proved the actual LEDE
+# enumeration:
+#   radio0 = pci0000:00/.../0000:01:00.0 = RT3091/3092 = 2.4 GHz
+#   radio1 = platform/10180000.wmac       = RT3883 WMAC  = 5 GHz
 # Cudy expects wlan00 = 2.4 GHz main AP and wlan10 = 5 GHz main AP.
 for sec in $(uci -q show wireless 2>/dev/null | sed -n "s/^wireless\.\([^.=]*\)=wifi-iface$/\1/p"); do
     dev="$(uci -q get wireless.$sec.device)"
@@ -40,8 +42,8 @@ for sec in $(uci -q show wireless 2>/dev/null | sed -n "s/^wireless\.\([^.=]*\)=
 
     target=""
     case "$dev" in
-        radio1) target="wlan00" ;;
-        radio0) target="wlan10" ;;
+        radio0) target="wlan00" ;;
+        radio1) target="wlan10" ;;
     esac
 
     [ -n "$target" ] || continue
@@ -58,17 +60,17 @@ done
 # names match the Cudy userspace contract, not only the UCI section names.
 if uci -q get wireless.wlan00 >/dev/null 2>&1; then
     uci set wireless.wlan00.ifname='wlan00'
-    uci set wireless.wlan00.device='radio1'
+    uci set wireless.wlan00.device='radio0'
 fi
 if uci -q get wireless.wlan10 >/dev/null 2>&1; then
     uci set wireless.wlan10.ifname='wlan10'
-    uci set wireless.wlan10.device='radio0'
+    uci set wireless.wlan10.device='radio1'
 fi
 
 # Metadata consumed by Cudy wireless models. Real capabilities still come from
 # the F9K1103 mac80211/iwinfo stack.
-uci -q get wireless.radio1 >/dev/null 2>&1 && uci set wireless.radio1.band='2g'
-uci -q get wireless.radio0 >/dev/null 2>&1 && uci set wireless.radio0.band='5g'
+uci -q get wireless.radio0 >/dev/null 2>&1 && uci set wireless.radio0.band='2g'
+uci -q get wireless.radio1 >/dev/null 2>&1 && uci set wireless.radio1.band='5g'
 
 uci commit system
 uci commit luci
