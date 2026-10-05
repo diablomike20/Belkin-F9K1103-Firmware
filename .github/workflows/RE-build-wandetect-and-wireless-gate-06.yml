@@ -83,10 +83,11 @@ jobs:
           curl -fL --retry 3 "$SDK_BASE/sha256sums" -o sha256sums
           curl -fL --retry 3 "$SDK_BASE/$SDK_NAME" -o "$SDK_NAME"
 
-          grep "  $SDK_NAME$" sha256sums > RE-sdk.sha256
-          test -s RE-sdk.sha256
-          sha256sum -c RE-sdk.sha256
-          cp RE-sdk.sha256 "$GITHUB_WORKSPACE/RE-WANDETECT-WIRELESS-GATE-06/RE-LEDE17-RT3883-SDK-SHA256.txt"
+          SDK_SHA="$(awk -v n="$SDK_NAME" '$NF==n || $NF=="*"n {print $1; exit}' sha256sums)"
+          test -n "$SDK_SHA"
+          echo "$SDK_SHA  $SDK_NAME" | sha256sum -c -
+          printf '%s  %s\n' "$SDK_SHA" "$SDK_NAME" \
+            > "$GITHUB_WORKSPACE/RE-WANDETECT-WIRELESS-GATE-06/RE-LEDE17-RT3883-SDK-SHA256.txt"
 
           mkdir -p sdk
           tar -xJf "$SDK_NAME" -C sdk --strip-components=1
