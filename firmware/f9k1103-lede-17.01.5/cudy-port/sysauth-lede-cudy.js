@@ -20,7 +20,15 @@ $("form").submit(function(e){
 });
 
 $(document).ready(function() {
-	$('#cbi-modal-auth').on('shown.bs.modal', function () {
+	const $auth = $('#cbi-modal-auth');
+
+	// Only activate the login modal when sysauth is the actual top-level page.
+	// Dashboard fragment XHRs must never be able to inject sysauth and log out
+	// an otherwise valid session.
+	if ($auth.length === 0 || $auth.closest('.status-panel, .carousel-inner').length > 0)
+		return;
+
+	$auth.on('shown.bs.modal', function () {
 		const $activePwd = get_password_input();
 		$activePwd && $activePwd.focus();
 	});
@@ -29,7 +37,7 @@ $(document).ready(function() {
 	setCookie("ignoreUpdate", "", {'max-age': -1});
 	$('#cbi-create-password').css('padding', '25px');
 	$('#cbi-create-password-tips').css({'margin-left':'-25px', 'color':'#777'});
-	$('#cbi-modal-auth').modal({backdrop: 'static', keyboard: false});
+	$auth.modal({backdrop: 'static', keyboard: false});
 });
 
 function get_password_input() {
