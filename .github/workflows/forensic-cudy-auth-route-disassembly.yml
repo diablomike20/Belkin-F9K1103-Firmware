@@ -1,0 +1,87 @@
+name: Forensic Cudy auth route disassembly
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install extraction tools
+        run: sudo apt-get update && sudo apt-get install -y squashfs-tools unzip curl file
+
+      - name: Extract exact flashed WIP03 rootfs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/wip /tmp/root out-auth-forensics
+          mkdir -p /tmp/wip out-auth-forensics
+          ART=11320230824
+          curl -fL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/$ART/zip"             -o /tmp/wip.zip
+          unzip -q /tmp/wip.zip -d /tmp/wip
+          IMG=/tmp/wip/RE-F9K1103-LEDE-17.01.5-CUDY-WIP03-RADIOFIX-sysupgrade.bin
+          python3 tools/repack-f9k1103-wip03.py extract-rootfs "$IMG" /tmp/root.sqfs
+          sudo unsquashfs -no-progress -d /tmp/root /tmp/root.sqfs >/dev/null
+
+      - name: Fetch luad LNUM32 disassembler
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL             https://github.com/dweekly/luad/releases/download/v0.3.1/luad-0.3.1-linux-x86_64.tar.gz             -o /tmp/luad.tar.gz
+          echo '5e297699463f04e19fda3a867fb9d36d444f848ee0ddf560b6ae383568ec0053  /tmp/luad.tar.gz' | sha256sum -c -
+          tar -xzf /tmp/luad.tar.gz -C /tmp
+          LUAD="$(find /tmp -type f -name luad -perm -111 | head -n1)"
+          echo "LUAD=$LUAD" >> "$GITHUB_ENV"
+
+      - name: Disassemble auth and routing bytecode
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo '=== /etc/config/luci ==='
+            cat /tmp/root/etc/config/luci
+            echo
+            echo '=== controller files and relevant strings ==='
+            find /tmp/root/usr/lib/lua/luci/controller -type f -name '*.lua' | sort | while read f; do
+              hits="$(strings -a "$f" | grep -E '^(admin|root|sysauth|sysauth_authenticator|htmlauth|index|status|devices|wan|lan|wireless|dhcp|vpn|system)$' || true)"
+              if [ -n "$hits" ]; then
+                echo "--- ${f#/tmp/root/} ---"
+                printf '%s\n' "$hits"
+              fi
+            done
+          } > out-auth-forensics/RE-CONTROLLER-AUTH-STRINGS.txt
+
+          # Disassemble every controller containing auth-related constants.
+          find /tmp/root/usr/lib/lua/luci/controller -type f -name '*.lua' | sort | while read f; do
+            if strings -a "$f" | grep -Eq 'sysauth|admin|root'; then
+              name="$(echo "${f#/tmp/root/}" | tr '/' '_')"
+              "$LUAD" inspect "$f" > "out-auth-forensics/${name}.inspect.txt" 2>&1 || true
+              "$LUAD" disasm "$f" > "out-auth-forensics/${name}.disasm.txt" 2>&1 || true
+            fi
+          done
+
+          "$LUAD" disasm /tmp/root/usr/lib/lua/luci/gui.lua > out-auth-forensics/RE-gui.disasm.txt 2>&1
+          "$LUAD" disasm /tmp/root/usr/lib/lua/luci/description.lua > out-auth-forensics/RE-description.disasm.txt 2>&1
+
+          # Capture source dispatcher and exact Dashboard JS/view.
+          cp /tmp/root/usr/lib/lua/luci/dispatcher.lua out-auth-forensics/RE-dispatcher.lua
+          cp /tmp/root/usr/lib/lua/luci/view/themes/bootstrap/index.htm out-auth-forensics/RE-index.htm
+          cp /tmp/root/www/luci-static/bootstrap/js/cbi.js out-auth-forensics/RE-cbi.js
+          cp /tmp/root/www/luci-static/bootstrap/js/sysauth.js out-auth-forensics/RE-sysauth.js
+
+          grep -Rns -a -E 'sysauth|authenticator|admin/logout|cbi_xhr_load|show_section'             /tmp/root/usr/lib/lua/luci /tmp/root/www/luci-static/bootstrap/js             > out-auth-forensics/RE-RAW-GREP.txt || true
+
+          sha256sum out-auth-forensics/* > out-auth-forensics/RE-SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: F9K1103-WIP03-AUTH-FORENSICS
+          path: out-auth-forensics/
