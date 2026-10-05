@@ -61,8 +61,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          D=/tmp/re08/donor-root-root
-          T=/tmp/re08/target-root-root
+          D=/tmp/re08/donor-root
+          T=/tmp/re08/target-root
           O=RE-RESIDUAL-ADAPTER-QUEUE-08
           cat > /tmp/re08/paths <<'EOF'
           etc/hotplug.d/gmac/08-wan-detect
@@ -81,7 +81,9 @@ jobs:
           while read -r rel; do
             [ -n "$rel" ] || continue
             ds=''; ts=''; dsz=''; tsz=''; same=NO
-            [ -f "$D/$rel" ] && { ds="$(sha256sum "$D/$rel"|awk '{print $1}')"; dsz="$(stat -c %s "$D/$rel")"; }
+            [ -f "$D/$rel" ] || { echo "ERROR: expected donor file missing: $rel" >&2; exit 1; }
+            ds="$(sha256sum "$D/$rel"|awk '{print $1}')"
+            dsz="$(stat -c %s "$D/$rel")"
             [ -f "$T/$rel" ] && { ts="$(sha256sum "$T/$rel"|awk '{print $1}')"; tsz="$(stat -c %s "$T/$rel")"; }
             [ -n "$ds" ] && [ "$ds" = "$ts" ] && same=YES
             printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$rel" "$ds" "$ts" "$same" "$dsz" "$tsz"               >> "$O/RE-RESIDUAL-EXACT-DIFF.tsv"
