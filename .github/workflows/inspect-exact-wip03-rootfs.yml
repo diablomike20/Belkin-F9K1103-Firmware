@@ -71,6 +71,14 @@ jobs:
             grep -Rns -E 'indexer|themes/.*/index|show_section|entry\(\{\}|node\(\)\.target|sysauth'               /tmp/root/usr/lib/lua/luci /tmp/root/www 2>/dev/null | head -n 500 || true
           } > out-exact-wip03/RE-INDEX-ROUTING-GREP.txt
 
+          {
+            echo "=== uhttpd Lua support ==="
+            if [ -e /tmp/root/usr/lib/uhttpd_lua.so ]; then ls -l /tmp/root/usr/lib/uhttpd_lua.so; else echo "NO /usr/lib/uhttpd_lua.so"; fi
+            if [ -e /tmp/root/usr/lib/uhttpd_lua.so.0 ]; then ls -l /tmp/root/usr/lib/uhttpd_lua.so.0; fi
+            echo
+            echo "=== package names ==="
+            grep '^Package: ' /tmp/root/usr/lib/opkg/status | grep -E 'uhttpd|lua' || true
+          } > out-exact-wip03/RE-UHTTPD-LUA-SUPPORT.txt
           sha256sum out-exact-wip03/* > out-exact-wip03/RE-SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
