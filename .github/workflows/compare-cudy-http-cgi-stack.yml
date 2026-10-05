@@ -57,7 +57,6 @@ jobs:
           diff -u /tmp/out/donor/usr_lib_lua_luci_http.lua /tmp/out/wip03/usr_lib_lua_luci_http.lua > /tmp/out/DIFF-http.lua.txt || true
           diff -u /tmp/out/donor/usr_lib_lua_luci_sgi_cgi.lua /tmp/out/wip03/usr_lib_lua_luci_sgi_cgi.lua > /tmp/out/DIFF-cgi.lua.txt || true
           diff -u /tmp/out/donor/www_cgi-bin_luci /tmp/out/wip03/www_cgi-bin_luci > /tmp/out/DIFF-cgi-launcher.txt || true
-          diff -u /tmp/out/donor/etc_config_uhttpd /tmp/out/wip03/etc_config_uhttpd > /tmp/out/DIFF-uhttpd.txt || true
 
           {
             echo '=== WIP03 http status/header/redirect ==='
