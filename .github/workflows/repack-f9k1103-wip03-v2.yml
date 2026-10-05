@@ -1,0 +1,35 @@
+name: Repack F9K1103 WIP03 radiofix v2
+
+on:
+  push:
+    branches:
+      - f9k1103-cudy-port-wip03
+    paths:
+      - '.github/workflows/repack-f9k1103-wip03-v2.yml'
+      - 'tools/repack-f9k1103-wip03.py'
+      - 'tools/repack-f9k1103-wip03.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  repack:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y squashfs-tools unzip python3 curl
+      - name: Repack
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash tools/repack-f9k1103-wip03.sh
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: F9K1103-CUDY-WIP03-RADIOFIX-FAST-REPACK-V2
+          path: out-wip03-radiofix/
+          if-no-files-found: error
+          compression-level: 0
