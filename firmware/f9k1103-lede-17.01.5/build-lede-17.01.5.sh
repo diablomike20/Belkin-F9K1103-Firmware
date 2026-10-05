@@ -78,6 +78,13 @@ cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/cudy-port/dispatcher-lede-cu
 cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/cudy-port/sysauth-lede-cudy.js" \
    files/www/luci-static/bootstrap/js/sysauth.js
 
+# LEDE's dispatcher renders view/indexer.htm, which in turn includes
+# themes/<theme>/indexer. The Cudy bootstrap theme provides index.htm instead.
+# Bridge that exact transport/view contract without modifying donor index.htm.
+cat > files/usr/lib/lua/luci/view/themes/bootstrap/indexer.htm <<'EOF_CUDY_INDEXER'
+<% include("themes/bootstrap/index") %>
+EOF_CUDY_INDEXER
+
 # The donor login template expects Cudy board-lock state from its dispatcher.
 # WIP03 deliberately does not use that vendor authentication gate; expose a
 # fixed healthy local UI state to the template only.
@@ -92,10 +99,21 @@ for rel in (
     if not p.exists() or p.is_symlink():
         continue
     s=p.read_text(errors="surrogateescape")
-    anchor='local broker = uci:get("cmagent", "mqtt", "broker")'
-    if anchor not in s:
-        raise SystemExit("Cudy sysauth template anchor missing: " + rel)
-    s=s.replace(anchor, anchor + "\nlocal bdinfo = true\nlocal flock = false", 1)
+    broker_anchor='local broker = uci:get("cmagent", "mqtt", "broker")'
+    if broker_anchor not in s:
+        raise SystemExit("Cudy sysauth broker anchor missing: " + rel)
+    s=s.replace(broker_anchor, broker_anchor + ' or ""', 1)
+
+    lang_anchor='if (string.find(lang, "%(")) then'
+    if lang_anchor not in s:
+        raise SystemExit("Cudy sysauth language anchor missing: " + rel)
+    s=s.replace(lang_anchor, 'if lang and string.find(lang, "%(") then', 1)
+
+    inject_anchor=broker_anchor + ' or ""'
+    s=s.replace(inject_anchor, inject_anchor + "\nlocal bdinfo = true\nlocal flock = false", 1)
+
+    if s.count("local bdinfo = true") != 1 or s.count("local flock = false") != 1:
+        raise SystemExit("Cudy sysauth board-state shim count is not exactly one: " + rel)
     p.write_text(s, errors="surrogateescape")
 PY_AUTH_TEMPLATE
 
@@ -175,6 +193,11 @@ strings -a files/usr/lib/lua/luci/sys.lua | grep -q 'crypt'
 ! grep -q 'crypt -ea' files/usr/lib/lua/luci/dispatcher.lua
 ! grep -q 'crypt -da' files/usr/lib/lua/luci/dispatcher.lua
 grep -q 'local bdinfo = true' files/usr/lib/lua/luci/view/themes/bootstrap/sysauth.htm
+[ "$(grep -c 'local bdinfo = true' files/usr/lib/lua/luci/view/themes/bootstrap/sysauth.htm)" -eq 1 ]
+grep -q 'local broker = uci:get("cmagent", "mqtt", "broker") or ""' files/usr/lib/lua/luci/view/themes/bootstrap/sysauth.htm
+grep -q 'if lang and string.find(lang, "%(") then' files/usr/lib/lua/luci/view/themes/bootstrap/sysauth.htm
+grep -q '#luci_password2' files/www/luci-static/bootstrap/js/sysauth.js
+grep -q '<% include("themes/bootstrap/index") %>' files/usr/lib/lua/luci/view/themes/bootstrap/indexer.htm
 for forbidden in \
   files/usr/lib/lua/luci/controller/cwmp.lua \
   files/usr/lib/lua/luci/model/cbi/cwmp.lua \
@@ -308,6 +331,11 @@ grep -aq 'checkuser = (user == "admin") and "root" or user' "$ROOT_BUILT/usr/lib
 strings -a "$ROOT_BUILT/usr/lib/lua/luci/sys.lua" | grep -q 'checkpasswd'
 strings -a "$ROOT_BUILT/usr/lib/lua/luci/sys.lua" | grep -q 'crypt'
 grep -aq 'local bdinfo = true' "$ROOT_BUILT/usr/lib/lua/luci/view/themes/bootstrap/sysauth.htm"
+[ "$(grep -ac 'local bdinfo = true' "$ROOT_BUILT/usr/lib/lua/luci/view/themes/bootstrap/sysauth.htm")" -eq 1 ]
+grep -aq 'local broker = uci:get("cmagent", "mqtt", "broker") or ""' "$ROOT_BUILT/usr/lib/lua/luci/view/themes/bootstrap/sysauth.htm"
+grep -aq 'if lang and string.find(lang, "%(") then' "$ROOT_BUILT/usr/lib/lua/luci/view/themes/bootstrap/sysauth.htm"
+grep -aq '#luci_password2' "$ROOT_BUILT/www/luci-static/bootstrap/js/sysauth.js"
+grep -aq '<% include("themes/bootstrap/index") %>' "$ROOT_BUILT/usr/lib/lua/luci/view/themes/bootstrap/indexer.htm"
 ! grep -aq '/admin/get_token' "$ROOT_BUILT/www/luci-static/bootstrap/js/sysauth.js"
 for forbidden in \
   "$ROOT_BUILT/usr/lib/lua/luci/controller/cwmp.lua" \
