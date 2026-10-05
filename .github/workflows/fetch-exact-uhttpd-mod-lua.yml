@@ -30,12 +30,18 @@ jobs:
           [ "$found" -eq 1 ]
           sha256sum "out/$FN" > out/RE-SHA256SUMS.txt
           file "out/$FN" > out/RE-FILE.txt
-          ar t "out/$FN" > out/RE-IPK-MEMBERS.txt
-          mkdir -p /tmp/ipk
-          cd /tmp/ipk
-          ar x "$GITHUB_WORKSPACE/out/$FN"
-          tar -xzf control.tar.gz
-          cat control > "$GITHUB_WORKSPACE/out/RE-CONTROL.txt"
+          xxd -l 64 "out/$FN" > out/RE-FIRST64.txt
+          if ar t "out/$FN" > out/RE-IPK-MEMBERS.txt 2>/dev/null; then
+            mkdir -p /tmp/ipk
+            cd /tmp/ipk
+            ar x "$GITHUB_WORKSPACE/out/$FN"
+            if [ -f control.tar.gz ]; then
+              tar -xzf control.tar.gz
+              cat control > "$GITHUB_WORKSPACE/out/RE-CONTROL.txt"
+            fi
+          else
+            echo "not-ar" > out/RE-IPK-MEMBERS.txt
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: EXACT-UHTTPD-MOD-LUA-LEDE-17.01.5
