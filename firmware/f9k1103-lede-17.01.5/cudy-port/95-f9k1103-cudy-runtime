@@ -81,6 +81,53 @@ fi
 uci -q get wireless.radio0 >/dev/null 2>&1 && uci set wireless.radio0.band='2g'
 uci -q get wireless.radio1 >/dev/null 2>&1 && uci set wireless.radio1.band='5g'
 
+# The exact WR1200/R26 donor creates its primary wlan00/wlan10 APs enabled.
+# Its 30_wlan uci-default assigns Cudy SSIDs and psk-mixed security, using the
+# board PIN when available and the donor's own 12345678 fallback otherwise.
+# Keep F9K1103 PHY/channel/hwmode target-native; port only those userspace
+# defaults which are missing from LEDE's mac80211 generator.
+bdinfo_mac="$(bdinfo mac 2>/dev/null | tr -d ':\r\n')"
+ssid_suffix="$(printf '%s' "$bdinfo_mac" | sed -n 's/.*\(....\)$/\1/p')"
+[ -n "$ssid_suffix" ] || ssid_suffix='default'
+bdinfo_pin="$(bdinfo pin 2>/dev/null | tr -d '\r\n')"
+[ -n "$bdinfo_pin" ] || bdinfo_pin='12345678'
+country="$(bdinfo country 2>/dev/null | tr -d '\r\n')"
+[ -n "$country" ] || country='US'
+
+if uci -q get wireless.radio0 >/dev/null 2>&1; then
+    uci -q delete wireless.radio0.disabled
+    uci set wireless.radio0.country="$country"
+fi
+if uci -q get wireless.radio1 >/dev/null 2>&1; then
+    uci -q delete wireless.radio1.disabled
+    uci set wireless.radio1.country="$country"
+fi
+
+if uci -q get wireless.wlan00 >/dev/null 2>&1; then
+    uci -q delete wireless.wlan00.disabled
+    uci set wireless.wlan00.i18name='2.4G'
+    uci set wireless.wlan00.network='lan'
+    uci set wireless.wlan00.mode='ap'
+    uci set wireless.wlan00.maxsta='64'
+    uci set wireless.wlan00.def_ssid="Cudy-$ssid_suffix"
+    uci set wireless.wlan00.ssid="Cudy-$ssid_suffix"
+    uci set wireless.wlan00.encryption='psk-mixed'
+    uci set wireless.wlan00.key="$bdinfo_pin"
+    uci set wireless.wlan00.macfilter='deny'
+fi
+if uci -q get wireless.wlan10 >/dev/null 2>&1; then
+    uci -q delete wireless.wlan10.disabled
+    uci set wireless.wlan10.i18name='5G'
+    uci set wireless.wlan10.network='lan'
+    uci set wireless.wlan10.mode='ap'
+    uci set wireless.wlan10.maxsta='64'
+    uci set wireless.wlan10.def_ssid="Cudy-$ssid_suffix-5G"
+    uci set wireless.wlan10.ssid="Cudy-$ssid_suffix-5G"
+    uci set wireless.wlan10.encryption='psk-mixed'
+    uci set wireless.wlan10.key="$bdinfo_pin"
+    uci set wireless.wlan10.macfilter='deny'
+fi
+
 uci commit network
 uci commit system
 uci commit luci
