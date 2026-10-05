@@ -1,0 +1,6 @@
+rank,model,firmware,role,flash_ram,dual_band,cudy_branch,common_ui_vs_WR1200V2,main_reason
+1,WR1200E R62,2.4.25,PRIMARY_USERSPACE_BASE,8MiB/64MiB,yes,2.4.x,95.53%,newer 2.4.25 + native dual-band + low runtime baggage
+2,WR1200V2 R26,2.4.23,REFERENCE_FALLBACK,8MiB/64MiB,yes,2.4.x,100%,deepest RE evidence and known compact rootfs
+3,WR300S R93,2.4.25,SECONDARY_FRAMEWORK_PORT_METADATA,8MiB/64MiB,no physical / generic dual-band software,2.4.x,95.24%,excellent generic 2.4.25 framework but extra services and 5G visibility delta
+4,WR1300 family,various,GIGABIT_NETWORK_REFERENCE,16MiB/128MiB,yes,older/newer mixed,n/a,gigabit semantics only; resource class too large
+5,WR1200V3 R149,2.5.24,NEW_FRAMEWORK_REFERENCE,8MiB/64MiB,yes,2.5.x,45.39%,major framework branch change and cloud/runtime delta
