@@ -326,7 +326,6 @@ CONFIG_TARGET_ramips_rt3883_DEVICE_f9k1103=y
 CONFIG_TARGET_ROOTFS_SQUASHFS=y
 CONFIG_TARGET_ROOTFS_INITRAMFS=y
 CONFIG_PACKAGE_luci=y
-CONFIG_PACKAGE_uhttpd-mod-lua=y
 CONFIG_PACKAGE_lua-cjson=y
 CONFIG_PACKAGE_umdns=y
 CFG
@@ -347,7 +346,6 @@ grep -aq 'checkuser = (user == "admin") and "root" or user' "$ROOT_BUILT/usr/lib
 strings -a "$ROOT_BUILT/usr/lib/lua/luci/sys.lua" | grep -q 'checkpasswd'
 strings -a "$ROOT_BUILT/usr/lib/lua/luci/sys.lua" | grep -q 'crypt'
 grep -aq 'local bdinfo = true' "$ROOT_BUILT/usr/lib/lua/luci/view/themes/bootstrap/sysauth.htm"
-test -s "$ROOT_BUILT/usr/lib/uhttpd_lua.so"
 grep -aq 'local broker = uci:get("cmagent", "mqtt", "broker") or ""' "$ROOT_BUILT/usr/lib/lua/luci/view/themes/bootstrap/sysauth.htm"
 grep -aq 'if lang and string.find(lang, "%(") then' "$ROOT_BUILT/usr/lib/lua/luci/view/themes/bootstrap/sysauth.htm"
 grep -aq '#luci_password_login, #luci_password2' "$ROOT_BUILT/www/luci-static/bootstrap/js/sysauth.js"
