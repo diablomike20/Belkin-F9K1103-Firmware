@@ -1,0 +1,19 @@
+#!/bin/sh
+# F9K1103 target-access safety adapter.
+#
+# The original Cudy WR1200E bdinfo + libbdinfo remain untouched.
+# A Belkin has no factory Cudy-signed bdinfo partition, so checkuuid is not
+# allowed to be faked as OK.
+#
+# Stock Cudy 11_fix_passwd hashes fuuid+hmac into a new root password when
+# bdinfo dbg != OK and ttylogin != 1. With an unprovisioned bdinfo both
+# identity values are empty, which would deterministically replace the known
+# target recovery credential. Mark ttylogin as already initialized instead;
+# the donor 11_fix_passwd then exits through its own unchanged condition.
+
+[ "$(bdinfo checkuuid 2>/dev/null)" = "OK" ] && exit 0
+
+uci -q get system.@system[0] >/dev/null 2>&1 || exit 0
+uci set system.@system[0].ttylogin='1'
+uci commit system
+exit 0
