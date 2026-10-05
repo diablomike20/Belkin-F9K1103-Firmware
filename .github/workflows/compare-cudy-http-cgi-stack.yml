@@ -1,0 +1,80 @@
+name: Compare Cudy HTTP CGI stack
+
+on:
+  push:
+    branches:
+      - f9k1103-cudy-port-wip03
+    paths:
+      - '.github/workflows/compare-cudy-http-cgi-stack.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y squashfs-tools unzip curl file
+      - name: Extract exact flashed image and donor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/wip03 /tmp/donor /tmp/out
+          mkdir -p /tmp/wip03 /tmp/donor /tmp/out
+          ART=11320230824
+          curl -fL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/$ART/zip" -o /tmp/wip03.zip
+          unzip -q /tmp/wip03.zip -d /tmp/wip03
+          IMG=/tmp/wip03/RE-F9K1103-LEDE-17.01.5-CUDY-WIP03-RADIOFIX-sysupgrade.bin
+          python3 tools/repack-f9k1103-wip03.py extract-rootfs "$IMG" /tmp/wip03.sqfs
+          sudo unsquashfs -no-progress -d /tmp/wip03-root /tmp/wip03.sqfs >/dev/null
+
+          URL='https://www.cudy.com/cdn/shop/files/WR1200V2-R26-2.4.23-20251224-145945-flash.zip?v=10287497656812635253'
+          curl -fL "$URL" -o /tmp/donor.zip
+          unzip -q /tmp/donor.zip -d /tmp/donor
+          BIN="$(find /tmp/donor -maxdepth 1 -type f -name '*-flash.bin' | head -n1)"
+          tail -c +2583296 "$BIN" > /tmp/donor.sqfs
+          sudo unsquashfs -no-progress -d /tmp/donor-root /tmp/donor.sqfs >/dev/null
+
+          for side in wip03 donor; do
+            root="/tmp/${side}-root"
+            mkdir -p "/tmp/out/$side"
+            for p in               usr/lib/lua/luci/http.lua               usr/lib/lua/luci/dispatcher.lua               usr/lib/lua/luci/sgi/cgi.lua               usr/lib/lua/luci/sgi/uhttpd.lua               www/cgi-bin/luci               etc/config/uhttpd               usr/lib/lua/luci/init.lua               usr/lib/lua/luci/config.lua
+            do
+              if [ -e "$root/$p" ]; then
+                cp -a "$root/$p" "/tmp/out/$side/$(echo "$p" | tr '/' '_')"
+              fi
+            done
+            find "$root/usr/lib/lua/luci/sgi" -maxdepth 2 -type f -printf '%P %s\n' 2>/dev/null | sort > "/tmp/out/$side/sgi-files.txt" || true
+            file "$root/www/cgi-bin/luci" > "/tmp/out/$side/cgi-filetype.txt" 2>&1 || true
+          done
+
+          diff -u /tmp/out/donor/usr_lib_lua_luci_http.lua /tmp/out/wip03/usr_lib_lua_luci_http.lua > /tmp/out/DIFF-http.lua.txt || true
+          diff -u /tmp/out/donor/usr_lib_lua_luci_sgi_cgi.lua /tmp/out/wip03/usr_lib_lua_luci_sgi_cgi.lua > /tmp/out/DIFF-cgi.lua.txt || true
+          diff -u /tmp/out/donor/www_cgi-bin_luci /tmp/out/wip03/www_cgi-bin_luci > /tmp/out/DIFF-cgi-launcher.txt || true
+          diff -u /tmp/out/donor/etc_config_uhttpd /tmp/out/wip03/etc_config_uhttpd > /tmp/out/DIFF-uhttpd.txt || true
+
+          {
+            echo '=== WIP03 http status/header/redirect ==='
+            grep -nE 'function .*status|function .*header|function .*redirect|Status:|Location:|setstatus|setheader' /tmp/wip03-root/usr/lib/lua/luci/http.lua || true
+            echo
+            echo '=== DONOR http status/header/redirect ==='
+            grep -nE 'function .*status|function .*header|function .*redirect|Status:|Location:|setstatus|setheader' /tmp/donor-root/usr/lib/lua/luci/http.lua || true
+            echo
+            echo '=== WIP03 cgi ==='
+            sed -n '1,220p' /tmp/wip03-root/usr/lib/lua/luci/sgi/cgi.lua 2>/dev/null || true
+            echo
+            echo '=== DONOR cgi ==='
+            sed -n '1,220p' /tmp/donor-root/usr/lib/lua/luci/sgi/cgi.lua 2>/dev/null || true
+          } > /tmp/out/RE-HTTP-CGI-SUMMARY.txt
+
+          cp -a /tmp/out "$GITHUB_WORKSPACE/out-http-cgi"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CUDY-HTTP-CGI-COMPARE
+          path: out-http-cgi/
