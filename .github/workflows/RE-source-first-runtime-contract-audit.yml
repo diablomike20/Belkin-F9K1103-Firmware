@@ -1,0 +1,121 @@
+name: RE source-first runtime contract audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - re-f9k1103-cudy-source-first-recovery
+    paths:
+      - '.github/workflows/RE-source-first-runtime-contract-audit.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install extraction tools
+        run: sudo apt-get update && sudo apt-get install -y squashfs-tools unzip curl file
+
+      - name: Extract exact WIP03 and exact WR1200 donor runtime contracts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/re-wip03 /tmp/re-wroot /tmp/re-donor /tmp/re-droot RE-RUNTIME-CONTRACT-AUDIT
+          mkdir -p /tmp/re-wip03 /tmp/re-donor RE-RUNTIME-CONTRACT-AUDIT/{TARGET,DONOR}
+
+          # Exact physically flashed WIP03 RADIOFIX artifact.
+          ART=11320230824
+          curl -fL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$ART/zip"             -o /tmp/re-wip03.zip
+          unzip -q /tmp/re-wip03.zip -d /tmp/re-wip03
+          IMG=/tmp/re-wip03/RE-F9K1103-LEDE-17.01.5-CUDY-WIP03-RADIOFIX-sysupgrade.bin
+          sha256sum "$IMG" | tee RE-RUNTIME-CONTRACT-AUDIT/TARGET/RE-WIP03-IMAGE-SHA256.txt
+          grep -q '^1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560  '             RE-RUNTIME-CONTRACT-AUDIT/TARGET/RE-WIP03-IMAGE-SHA256.txt
+          python3 tools/repack-f9k1103-wip03.py extract-rootfs "$IMG" /tmp/re-wip03.sqfs
+          sudo unsquashfs -no-progress -d /tmp/re-wroot /tmp/re-wip03.sqfs >/dev/null
+
+          # Exact primary functional donor.
+          URL='https://www.cudy.com/cdn/shop/files/WR1200V2-R26-2.4.23-20251224-145945-flash.zip?v=10287497656812635253'
+          curl -fL "$URL" -o /tmp/re-donor.zip
+          echo 'def1d4b8472b5fef4d0f13d337d6c2f11127d14ef6bd7100780dbac0115aa35c  /tmp/re-donor.zip' | sha256sum -c -
+          sha256sum /tmp/re-donor.zip > RE-RUNTIME-CONTRACT-AUDIT/DONOR/RE-DONOR-ZIP-SHA256.txt
+          unzip -q /tmp/re-donor.zip -d /tmp/re-donor
+          BIN="$(find /tmp/re-donor -maxdepth 1 -type f -name '*-flash.bin' | head -n1)"
+          sha256sum "$BIN" > RE-RUNTIME-CONTRACT-AUDIT/DONOR/RE-DONOR-BIN-SHA256.txt
+          tail -c +2583296 "$BIN" > /tmp/re-donor.sqfs
+          sudo unsquashfs -no-progress -d /tmp/re-droot /tmp/re-donor.sqfs >/dev/null
+
+          # Exact target adapter source in the immutable flashed rootfs.
+          sudo cp -a /tmp/re-wroot/etc/uci-defaults/95-f9k1103-cudy-runtime             RE-RUNTIME-CONTRACT-AUDIT/TARGET/RE-95-f9k1103-cudy-runtime
+          sha256sum RE-RUNTIME-CONTRACT-AUDIT/TARGET/RE-95-f9k1103-cudy-runtime             > RE-RUNTIME-CONTRACT-AUDIT/TARGET/RE-TARGET-ADAPTER-SHA256.txt
+
+          # Find exact donor files that establish Cudy WAN mode and primary AP defaults.
+          {
+            echo '=== DONOR writers of network.<iface>.mode ==='
+            sudo grep -RIl "set network\.\$1\.mode='\$1'" /tmp/re-droot 2>/dev/null || true
+            echo
+            echo '=== DONOR files containing primary wlan00/wlan10 definitions ==='
+            sudo grep -RIl 'config wifi-iface.*wlan.*0' /tmp/re-droot/lib /tmp/re-droot/sbin /tmp/re-droot/usr /tmp/re-droot/etc 2>/dev/null || true
+          } > RE-RUNTIME-CONTRACT-AUDIT/DONOR/RE-DONOR-RUNTIME-WRITER-PATHS.txt
+
+          # Copy and hash every exact donor file that contains the relevant writers.
+          mkdir -p RE-RUNTIME-CONTRACT-AUDIT/DONOR/files
+          while IFS= read -r f; do
+            [ -f "$f" ] || continue
+            rel="${f#/tmp/re-droot/}"
+            safe="$(printf '%s' "$rel" | tr '/' '_')"
+            sudo cp -a "$f" "RE-RUNTIME-CONTRACT-AUDIT/DONOR/files/RE-$safe"
+          done < <(
+            {
+              sudo grep -RIl "set network\.\$1\.mode='\$1'" /tmp/re-droot 2>/dev/null || true
+              sudo grep -RIl 'config wifi-iface.*wlan.*0' /tmp/re-droot/lib /tmp/re-droot/sbin /tmp/re-droot/usr /tmp/re-droot/etc 2>/dev/null || true
+            } | sort -u
+          )
+
+          sudo chown -R "$(id -u):$(id -g)" RE-RUNTIME-CONTRACT-AUDIT
+          (
+            cd RE-RUNTIME-CONTRACT-AUDIT/DONOR/files
+            sha256sum RE-* | sort > ../RE-DONOR-RUNTIME-FILE-SHA256.txt
+          )
+
+          # Exact evidence excerpts.
+          {
+            echo '=== network mode writer ==='
+            grep -R -n -B12 -A18 "set network\.\$1\.mode='\$1'" RE-RUNTIME-CONTRACT-AUDIT/DONOR/files || true
+            echo
+            echo '=== wireless primary AP / disabled defaults ==='
+            grep -R -n -E -B8 -A30 'config wifi-device|config wifi-iface|option disabled|option mode[[:space:]]+ap|option network[[:space:]]+lan'               RE-RUNTIME-CONTRACT-AUDIT/DONOR/files || true
+          } > RE-RUNTIME-CONTRACT-AUDIT/RE-DONOR-CONTRACT-EVIDENCE.txt
+
+          # Target-side immutable source facts.
+          {
+            echo '=== target adapter WAN mode writes ==='
+            grep -n 'network\.wan\.mode' RE-RUNTIME-CONTRACT-AUDIT/TARGET/RE-95-f9k1103-cudy-runtime || true
+            echo
+            echo '=== target adapter radio disabled writes ==='
+            grep -n -E 'radio[01]\.disabled|delete wireless\.radio[01]\.disabled'               RE-RUNTIME-CONTRACT-AUDIT/TARGET/RE-95-f9k1103-cudy-runtime || true
+          } > RE-RUNTIME-CONTRACT-AUDIT/RE-TARGET-ADAPTER-GAPS.txt
+
+          cat > RE-RUNTIME-CONTRACT-AUDIT/RE-AUDIT-STATUS.txt <<'EOF'
+          PURPOSE=SOURCE_FIRST_RUNTIME_CONTRACT_AUDIT
+          MODIFIES_FIRMWARE=NO
+          FLASHES_TARGET=NO
+          DONOR=WR1200V2_R26_2.4.23
+          TARGET=WIP03_RADIOFIX_EXACT_FLASHED_IMAGE
+          EOF
+
+          tar -czf RE-F9K1103-CUDY-RUNTIME-CONTRACT-AUDIT-01.tar.gz RE-RUNTIME-CONTRACT-AUDIT
+          sha256sum RE-F9K1103-CUDY-RUNTIME-CONTRACT-AUDIT-01.tar.gz             > RE-F9K1103-CUDY-RUNTIME-CONTRACT-AUDIT-01.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-F9K1103-CUDY-RUNTIME-CONTRACT-AUDIT-01
+          path: |
+            RE-F9K1103-CUDY-RUNTIME-CONTRACT-AUDIT-01.tar.gz
+            RE-F9K1103-CUDY-RUNTIME-CONTRACT-AUDIT-01.tar.gz.sha256
