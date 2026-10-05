@@ -46,7 +46,7 @@ copy_target_path() {
 : > "$OUT_ROOT/RE-TARGET-HARDWARE-PATHS.txt"
 
 # Kernel / modules / firmware blobs are always target-owned.
-for rel in   lib/modules   lib/firmware   etc/modules.d   etc/modules-boot.d
+for rel in   lib/modules   lib/firmware   lib/wifi   etc/modules.d   etc/modules-boot.d
 do
   copy_target_path "$rel"
 done
