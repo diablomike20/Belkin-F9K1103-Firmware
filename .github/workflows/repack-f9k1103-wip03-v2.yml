@@ -25,7 +25,7 @@ jobs:
       - name: Repack
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash tools/repack-f9k1103-wip03.sh
+        run: sudo -E bash tools/repack-f9k1103-wip03.sh
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
