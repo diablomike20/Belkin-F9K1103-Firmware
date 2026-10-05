@@ -1,0 +1,55 @@
+name: Disassemble Cudy dashboard models
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - f9k1103-cudy-port-wip03-clean-audit
+    paths:
+      - '.github/workflows/disasm-cudy-dashboard-models.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y squashfs-tools unzip curl
+      - name: Extract donor and disassemble dashboard CBI
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/dashdis out-dashdis
+          mkdir -p /tmp/dashdis out-dashdis
+          URL='https://www.cudy.com/cdn/shop/files/WR1200V2-R26-2.4.23-20251224-145945-flash.zip?v=10287497656812635253'
+          curl -fL "$URL" -o /tmp/dashdis/donor.zip
+          unzip -q /tmp/dashdis/donor.zip -d /tmp/dashdis
+          BIN="$(find /tmp/dashdis -maxdepth 1 -type f -name '*-flash.bin' | head -n1)"
+          tail -c +2583296 "$BIN" > /tmp/dashdis/rootfs.sqfs
+          sudo unsquashfs -no-progress -d /tmp/dashdis/root /tmp/dashdis/rootfs.sqfs >/dev/null
+          ROOT=/tmp/dashdis/root
+
+          curl -fL 'https://github.com/dweekly/luad/releases/download/v0.3.1/luad-0.3.1-linux-x86_64.tar.gz' -o /tmp/dashdis/luad.tgz
+          echo '5e297699463f04e19fda3a867fb9d36d444f848ee0ddf560b6ae383568ec0053  /tmp/dashdis/luad.tgz' | sha256sum -c -
+          tar -xzf /tmp/dashdis/luad.tgz -C /tmp/dashdis
+          LUAD="$(find /tmp/dashdis -maxdepth 2 -type f -name luad -perm -111 | head -n1)"
+          test -n "$LUAD"
+
+          for rel in             usr/lib/lua/luci/model/cbi/system/wizard.lua             usr/lib/lua/luci/model/cbi/devices/status.lua             usr/lib/lua/luci/model/cbi/lan/status.lua             usr/lib/lua/luci/model/cbi/wireless/status.lua             usr/lib/lua/luci/model/cbi/dhcp/status.lua             usr/lib/lua/luci/model/cbi/system/status.lua             usr/lib/lua/luci/util.lua
+          do
+            src="$ROOT/$rel"
+            name="$(echo "$rel" | tr '/' '_')"
+            if [ -e "$src" ]; then
+              "$LUAD" inspect "$src" > "out-dashdis/$name.inspect.txt" 2>&1 || true
+              "$LUAD" disasm "$src" > "out-dashdis/$name.disasm.txt" 2>&1 || true
+              "$LUAD" origins "$src" > "out-dashdis/$name.origins.txt" 2>&1 || true
+            fi
+          done
+
+          sha256sum out-dashdis/* > out-dashdis/RE-SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CUDY-DASHBOARD-MODEL-DISASM
+          path: out-dashdis/
