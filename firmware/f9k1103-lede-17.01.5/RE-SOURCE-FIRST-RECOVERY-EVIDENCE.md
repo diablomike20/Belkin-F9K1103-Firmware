@@ -227,3 +227,30 @@ Base:
 `dd2648d8d7645fadae768254778778a4451e5394`
 
 Only proven mcore regression gating has been added after that base.
+
+
+## Physical target verification — mcore/Devices
+
+Physical validation result on Belkin F9K1103:
+
+- pre-patch target SHA-256:
+  `8978851ee5d90afd332843268eac287522a1952116a3a56ccfd043006d45dec0`
+- expected pre-patch SHA-256: exact match
+- live patched SHA-256:
+  `77ef2142c7f822074034be4164aa05d7a8ad4ae8690fa599ae5599cfc52f2420`
+- `require_mcore=true`
+- `devlist_ok=true`
+- `devlist_type=table`
+- `devlist_count=1`
+- `VALIDATION=PASS`
+
+Persistence:
+`LIVE_OVERLAY_ONLY`
+
+Rollback copy:
+`/tmp/RE-mcore.lua.before-validate`
+
+Classification:
+**TARGET_VERIFIED**
+
+This closes the first physical Cudy compatibility adapter defect in the recovery line.
