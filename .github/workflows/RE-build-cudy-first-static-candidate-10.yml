@@ -75,6 +75,7 @@ jobs:
           echo '1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560  '"$BASE" | sha256sum -c -
           cp "$BASE" /tmp/re10/base-sysupgrade.bin
 
+      # WAN kmod source is the latest successful exact-SDK run.
       - name: Acquire successful wandetect compatibility module
         env:
           GH_TOKEN: ${{ github.token }}
