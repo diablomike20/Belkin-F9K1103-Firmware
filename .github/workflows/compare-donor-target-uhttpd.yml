@@ -54,6 +54,25 @@ jobs:
             echo "-- DONOR --"
             sudo awk '/^Package: uhttpd$/{p=1} p{print} p&&/^$/{exit}' /tmp/droot/usr/lib/opkg/status || true
             echo
+            echo "=== Lua uhttpd module/package ==="
+            echo "-- WIP03 packages --"
+            sudo grep -A12 -E '^Package: uhttpd-mod-lua$|^Package: liblua$|^Package: lua            echo "-- WIP03 --"
+            sudo strings -a /tmp/wroot/usr/sbin/uhttpd | grep -Ei 'Status:|Location:|CGI|HTTP/1\.[01]' | head -80 || true
+            echo "-- DONOR --"
+            sudo strings -a /tmp/droot/usr/sbin/uhttpd | grep -Ei 'Status:|Location:|CGI|HTTP/1\.[01]' | head -80 || true
+          } > out-uhttpd/RE-UHTTPD-COMPARE.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DONOR-TARGET-UHTTPD-COMPARE
+          path: out-uhttpd/
+ /tmp/wroot/usr/lib/opkg/status || true
+            echo "-- WIP03 module files --"
+            sudo find /tmp/wroot -maxdepth 4 -type f \( -iname '*uhttpd*lua*' -o -iname '*lua*uhttpd*' \) -printf '%P %s\n' | sort || true
+            echo "-- WIP03 uhttpd help Lua strings --"
+            sudo strings -a /tmp/wroot/usr/sbin/uhttpd | grep -Ei 'lua_prefix|lua_handler|Lua handler|lua' | head -80 || true
+            echo "-- DONOR module files --"
+            sudo find /tmp/droot -maxdepth 4 -type f \( -iname '*uhttpd*lua*' -o -iname '*lua*uhttpd*' \) -printf '%P %s\n' | sort || true
+            echo
             echo "=== status/header-related strings ==="
             echo "-- WIP03 --"
             sudo strings -a /tmp/wroot/usr/sbin/uhttpd | grep -Ei 'Status:|Location:|CGI|HTTP/1\.[01]' | head -80 || true
