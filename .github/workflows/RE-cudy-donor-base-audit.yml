@@ -218,7 +218,7 @@ jobs:
           refsB=collect_refs(rb,needles)
 
           with open(out/'RE-WR1200V2-vs-WR300S-WIRELESS-REFS.csv','w',newline='') as f:
-              w=csv.writer(f); w.writerow(['model','path','matched_tokens'])
+              w=csv.writer(f,quoting=csv.QUOTE_ALL); w.writerow(['model','path','matched_tokens'])
               for p,m in refsA: w.writerow([A,p,m])
               for p,m in refsB: w.writerow([B,p,m])
 
@@ -273,7 +273,7 @@ jobs:
           ma,mb=manifest_subset(ra),manifest_subset(rb)
           paths=sorted(set(ma)|set(mb))
           with open(out/'RE-WR1200V2-vs-WR300S-RUNTIME-MANIFEST-DIFF.csv','w',newline='') as f:
-              w=csv.writer(f); w.writerow(['path','wr1200v2','wr300s','class'])
+              w=csv.writer(f,quoting=csv.QUOTE_ALL); w.writerow(['path','wr1200v2','wr300s','class'])
               for p in paths:
                   a,b=ma.get(p),mb.get(p)
                   cls='IDENTICAL' if a and b and a==b else 'DIFFERENT' if a and b else 'WR1200_ONLY' if a else 'WR300S_ONLY'
@@ -295,14 +295,14 @@ jobs:
           toks=['radio1','wlan10','wlan1','mt7663','mt761','5G','5g','HT80','VHT','802.11ac','11ac']
           ga,gb=grep_lines(ra,toks),grep_lines(rb,toks)
           with open(out/'RE-WR1200V2-vs-WR300S-RADIO1-5G-EVIDENCE.csv','w',newline='') as f:
-              w=csv.writer(f);w.writerow(['model','path','line','text'])
+              w=csv.writer(f,quoting=csv.QUOTE_ALL);w.writerow(['model','path','line','text'])
               for p,i,l in ga:w.writerow([A,p,i,l])
               for p,i,l in gb:w.writerow([B,p,i,l])
 
           # daemon/service comparison
           service_names=['cmagent','cmsd','mosquitto','hcshd','pingcheck','mcore','bdinfo','hyfibr']
           with open(out/'RE-WR1200V2-vs-WR300S-SERVICE-COMPARISON.csv','w',newline='') as f:
-              w=csv.writer(f);w.writerow(['service','wr1200v2_paths','wr300s_paths'])
+              w=csv.writer(f,quoting=csv.QUOTE_ALL);w.writerow(['service','wr1200v2_paths','wr300s_paths'])
               for n in service_names:
                   ha=sorted(str(p.relative_to(ra)) for p in ra.rglob(n) if p.is_file() or p.is_symlink())
                   hb=sorted(str(p.relative_to(rb)) for p in rb.rglob(n) if p.is_file() or p.is_symlink())
