@@ -105,6 +105,15 @@ test -x "$WORK/final-root/etc/uci-defaults/10zz-f9k1103-unprovisioned-access"
 test -f "$WORK/final-root/etc/uci-defaults/11_fix_passwd"
 cmp "$DONOR_ROOT/etc/uci-defaults/11_fix_passwd" "$WORK/final-root/etc/uci-defaults/11_fix_passwd"
 
+# Lexical uci-defaults ordering is part of the safety contract:
+# 10zz target precondition MUST execute before unchanged donor 11_fix_passwd.
+[ "10zz-f9k1103-unprovisioned-access" \< "11_fix_passwd" ] || {
+    echo "ERROR: firstboot password guard ordering invalid" >&2
+    exit 1
+}
+grep -q 'bdinfo checkuuid' "$WORK/final-root/etc/uci-defaults/10zz-f9k1103-unprovisioned-access"
+grep -q "ttylogin='1'" "$WORK/final-root/etc/uci-defaults/10zz-f9k1103-unprovisioned-access"
+
 # Recovery credential data must remain the exact boot-proven target value.
 test -f "$WORK/target-root/etc/shadow"
 test -f "$WORK/final-root/etc/shadow"
