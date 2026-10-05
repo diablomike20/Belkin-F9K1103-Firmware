@@ -26,7 +26,7 @@ jobs:
         run: |
           set -euo pipefail
           ART=11320230824
-          mkdir -p /tmp/art /tmp/root out-exact-wip03
+          mkdir -p /tmp/art out-exact-wip03\n          rm -rf /tmp/root
           curl -fL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/$ART/zip"             -o /tmp/art.zip
           unzip -q /tmp/art.zip -d /tmp/art
           IMG=/tmp/art/RE-F9K1103-LEDE-17.01.5-CUDY-WIP03-RADIOFIX-sysupgrade.bin
