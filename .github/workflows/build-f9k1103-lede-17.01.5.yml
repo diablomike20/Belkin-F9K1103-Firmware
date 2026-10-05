@@ -11,6 +11,7 @@ on:
       - f9k1103-cudy-port-wip01
       - f9k1103-cudy-port-wip02
       - f9k1103-cudy-port-wip03
+      - f9k1103-cudy-port-wip03-clean-audit
     paths:
       - '.github/workflows/build-f9k1103-lede-17.01.5.yml'
       - 'firmware/f9k1103-lede-17.01.5/**'
