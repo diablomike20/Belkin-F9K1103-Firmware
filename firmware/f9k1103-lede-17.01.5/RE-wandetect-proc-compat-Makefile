@@ -1,0 +1,32 @@
+include $(TOPDIR)/rules.mk
+
+PKG_NAME:=re-wandetect-proc-compat
+PKG_RELEASE:=1
+
+include $(INCLUDE_DIR)/kernel.mk
+include $(INCLUDE_DIR)/package.mk
+
+define KernelPackage/re-wandetect-proc-compat
+  SUBMENU:=Other modules
+  TITLE:=F9K1103 Cudy wan_detect procfs compatibility
+  FILES:=$(PKG_BUILD_DIR)/re_wandetect_compat.ko
+  AUTOLOAD:=$(call AutoLoad,50,re_wandetect_compat)
+endef
+
+define KernelPackage/re-wandetect-proc-compat/description
+ Target-only kernel ABI adapter for the unchanged Cudy /sbin/wandetect stack.
+ It provides /proc/net/wandetect/{ipaddr,gateway,macaddr,iface,proto,service}.
+ It does not claim proprietary automatic protocol-detection parity.
+endef
+
+define Build/Prepare
+	mkdir -p $(PKG_BUILD_DIR)
+	cp $(CURDIR)/src/RE-wandetect-proc-compat.c $(PKG_BUILD_DIR)/re_wandetect_compat.c
+	echo 'obj-m += re_wandetect_compat.o' > $(PKG_BUILD_DIR)/Makefile
+endef
+
+define Build/Compile
+	$(KERNEL_MAKE) M=$(PKG_BUILD_DIR) modules
+endef
+
+$(eval $(call KernelPackage,re-wandetect-proc-compat))
