@@ -37,7 +37,8 @@ jobs:
           SDK="$BASE/lede-sdk-17.01.5-ramips-rt3883_gcc-5.4.0_musl-1.1.16.Linux-x86_64.tar.xz"
           if curl -fL --connect-timeout 15 "$SDK" -o /tmp/re-sdk13.tar.xz; then
             sha256sum /tmp/re-sdk13.tar.xz > RE-LEDE17-RT3883-SDK-PROBE-13/RE-SDK-SHA256.txt
-            tar -tJf /tmp/re-sdk13.tar.xz | head -1000 > RE-LEDE17-RT3883-SDK-PROBE-13/RE-SDK-FILE-LIST.txt
+            tar -tJf /tmp/re-sdk13.tar.xz > /tmp/re-sdk13-files.txt
+  sed -n '1,1000p' /tmp/re-sdk13-files.txt > RE-LEDE17-RT3883-SDK-PROBE-13/RE-SDK-FILE-LIST.txt
             echo 'SDK_AVAILABLE=YES' > RE-LEDE17-RT3883-SDK-PROBE-13/RE-SUMMARY.txt
           else
             echo 'SDK_AVAILABLE=NO' > RE-LEDE17-RT3883-SDK-PROBE-13/RE-SUMMARY.txt
