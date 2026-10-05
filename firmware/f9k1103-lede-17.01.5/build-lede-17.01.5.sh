@@ -176,6 +176,7 @@ fi
 echo "=== Cudy WIP02 pre-build gate ==="
 sh -n files/usr/bin/bdinfo
 sh -n files/etc/uci-defaults/95-f9k1103-cudy-runtime
+! grep -q 'util\.shellquote' files/usr/lib/lua/mcore.lua
 if command -v luac5.1 >/dev/null 2>&1; then
   luac5.1 -p files/usr/lib/lua/mcore.lua
   luac5.1 -p files/usr/lib/lua/luci/dispatcher.lua
@@ -325,6 +326,7 @@ MCORE_BUILT="$(find build_dir -type f -path '*/root-ramips/usr/lib/lua/mcore.lua
 ROOT_BUILT="${MCORE_BUILT%/usr/lib/lua/mcore.lua}"
 test -x "$ROOT_BUILT/usr/bin/bdinfo"
 grep -aq 'F9K1103 Cudy compatibility layer' "$ROOT_BUILT/usr/lib/lua/mcore.lua"
+! grep -aq 'util\.shellquote' "$ROOT_BUILT/usr/lib/lua/mcore.lua"
 grep -aq '2025 Shenzhen Cudy Technology Co., Ltd.' "$ROOT_BUILT/usr/lib/lua/luci/view/themes/bootstrap/footer.htm"
 grep -aq '2.4.23-F9K1103-Cudy-WIP03' "$ROOT_BUILT/etc/rom_version"
 grep -aq 'checkuser = (user == "admin") and "root" or user' "$ROOT_BUILT/usr/lib/lua/luci/dispatcher.lua"
