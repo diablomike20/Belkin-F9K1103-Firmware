@@ -6,6 +6,7 @@ on:
       - f9k1103-cudy-port-wip03
     paths:
       - '.github/workflows/repack-f9k1103-cudy-wip03-radiofix.yml'
+      - 'tools/repack-f9k1103-wip03.py'
   workflow_dispatch:
 
 permissions:
@@ -38,7 +39,7 @@ jobs:
           unzip -q /tmp/wip03-base.zip -d /tmp/wip03-base
           test -s /tmp/wip03-base/lede-ramips-rt3883-f9k1103-squashfs-sysupgrade.bin
 
-      - name: Repack corrected runtime adapter
+      - name: Split and patch rootfs
         shell: bash
         run: |
           set -euo pipefail
@@ -48,44 +49,7 @@ jobs:
           rm -rf "$WORK" "$OUT"
           mkdir -p "$WORK" "$OUT"
 
-          python3 - "$IMG" "$WORK" <<'PY'
-import pathlib, struct, sys
-img=pathlib.Path(sys.argv[1]).read_bytes()
-out=pathlib.Path(sys.argv[2])
-
-if len(img) < 128:
-    raise SystemExit("image too short")
-
-magic,hcrc,ts,size,load,entry,dcrc=struct.unpack(">7I", img[:28])
-if magic != 0x27051956:
-    raise SystemExit("bad uImage magic")
-rootfs_off=64+size
-if img[rootfs_off:rootfs_off+4] != b"hsqs":
-    raise SystemExit(f"SquashFS magic missing at {rootfs_off}")
-
-# SquashFS v4 little-endian bytes_used field is offset 40.
-bytes_used=struct.unpack_from("<Q", img, rootfs_off+40)[0]
-rootfs_end=rootfs_off+bytes_used
-if rootfs_end > len(img):
-    raise SystemExit("invalid squashfs bytes_used")
-
-# OpenWrt fwtool trailer: final u32 is total metadata-record size.
-tsize=struct.unpack(">I", img[-4:])[0]
-if not (16 <= tsize <= 65536 and tsize <= len(img)-rootfs_end):
-    raise SystemExit(f"invalid fwtool trailer size: {tsize}")
-meta=img[-tsize:]
-
-(out/"kernel.bin").write_bytes(img[:rootfs_off])
-(out/"rootfs.squashfs").write_bytes(img[rootfs_off:rootfs_end])
-(out/"fwtool-meta.bin").write_bytes(meta)
-(out/"layout.txt").write_text(
-    f"uimage_payload_size={size}\n"
-    f"rootfs_offset={rootfs_off}\n"
-    f"rootfs_bytes_used={bytes_used}\n"
-    f"fwtool_record_size={tsize}\n"
-)
-PY
-
+          python3 tools/repack-f9k1103-wip03.py split "$IMG" "$WORK"
           unsquashfs -no-progress -d "$WORK/rootfs" "$WORK/rootfs.squashfs" >/dev/null
 
           TARGET="$WORK/rootfs/etc/uci-defaults/95-f9k1103-cudy-runtime"
@@ -93,67 +57,31 @@ PY
           cp firmware/f9k1103-lede-17.01.5/cudy-port/95-f9k1103-cudy-runtime "$TARGET"
           chmod 0755 "$TARGET"
 
-          grep -q "radio0) target=\"wlan00\"" "$TARGET"
-          grep -q "radio1) target=\"wlan10\"" "$TARGET"
+          grep -q 'radio0) target="wlan00"' "$TARGET"
+          grep -q 'radio1) target="wlan10"' "$TARGET"
           grep -q "wireless.wlan00.device='radio0'" "$TARGET"
           grep -q "wireless.wlan10.device='radio1'" "$TARGET"
 
-          # Preserve LEDE rootfs compression family and block size.
           mksquashfs "$WORK/rootfs" "$WORK/rootfs-new.squashfs" \
             -comp xz -b 262144 -noappend -no-progress >/dev/null
 
           cat "$WORK/kernel.bin" "$WORK/rootfs-new.squashfs" "$WORK/fwtool-meta.bin" \
             > "$OUT/RE-F9K1103-LEDE-17.01.5-CUDY-WIP03-RADIOFIX-sysupgrade.bin"
 
-          # Re-open final image and statically verify the unchanged kernel
-          # uImage CRC plus the new SquashFS location/size and total image limit.
-          python3 - "$OUT/RE-F9K1103-LEDE-17.01.5-CUDY-WIP03-RADIOFIX-sysupgrade.bin" "$OUT" <<'PY'
-import binascii, pathlib, struct, sys
-p=pathlib.Path(sys.argv[1])
-out=pathlib.Path(sys.argv[2])
-b=p.read_bytes()
-hdr=b[:64]
-magic,hcrc,ts,size,load,entry,dcrc=struct.unpack(">7I",hdr[:28])
-name=hdr[32:64].split(b"\0",1)[0].decode("ascii","replace")
-hz=bytearray(hdr); hz[4:8]=b"\0\0\0\0"
-hc=binascii.crc32(hz)&0xffffffff
-payload=b[64:64+size]
-dc=binascii.crc32(payload)&0xffffffff
-sq=64+size
-ok=(magic==0x27051956 and hcrc==hc and dcrc==dc and
-    name=="N750F9K1103VB" and b[sq:sq+4]==b"hsqs" and
-    len(b)<=7224*1024)
-report=[
- f"file={p.name}",
- f"size={len(b)}",
- f"uimage_name={name}",
- f"header_crc_ok={hcrc==hc}",
- f"payload_crc_ok={dcrc==dc}",
- f"squashfs_offset={sq}",
- f"fits_7224k={len(b)<=7224*1024}",
- f"VALIDATION={'PASS' if ok else 'FAIL'}",
-]
-(out/"RE-STATIC-VALIDATION.txt").write_text("\n".join(report)+"\n")
-if not ok: raise SystemExit("static validation failed")
-PY
+          python3 tools/repack-f9k1103-wip03.py validate \
+            "$OUT/RE-F9K1103-LEDE-17.01.5-CUDY-WIP03-RADIOFIX-sysupgrade.bin" \
+            "$OUT/RE-STATIC-VALIDATION.txt"
 
-          # Verify the corrected file from the final image, not only source tree.
-          python3 - "$OUT/RE-F9K1103-LEDE-17.01.5-CUDY-WIP03-RADIOFIX-sysupgrade.bin" "$WORK/final-rootfs.sqfs" <<'PY'
-import pathlib,struct,sys
-b=pathlib.Path(sys.argv[1]).read_bytes()
-size=struct.unpack(">I",b[12:16])[0]
-off=64+size
-used=struct.unpack_from("<Q",b,off+40)[0]
-pathlib.Path(sys.argv[2]).write_bytes(b[off:off+used])
-PY
+          python3 tools/repack-f9k1103-wip03.py extract-rootfs \
+            "$OUT/RE-F9K1103-LEDE-17.01.5-CUDY-WIP03-RADIOFIX-sysupgrade.bin" \
+            "$WORK/final-rootfs.sqfs"
           unsquashfs -no-progress -d "$WORK/final-rootfs" "$WORK/final-rootfs.sqfs" >/dev/null
           F="$WORK/final-rootfs/etc/uci-defaults/95-f9k1103-cudy-runtime"
-          grep -q "radio0) target=\"wlan00\"" "$F"
-          grep -q "radio1) target=\"wlan10\"" "$F"
+          grep -q 'radio0) target="wlan00"' "$F"
+          grep -q 'radio1) target="wlan10"' "$F"
 
           cp "$F" "$OUT/RE-95-f9k1103-cudy-runtime-IN-IMAGE"
           cp "$WORK/layout.txt" "$OUT/RE-BASE-LAYOUT.txt"
-          sha256sum "$OUT"/* > "$OUT/RE-SHA256SUMS.txt"
 
           cat > "$OUT/RE-REPACK-INFO.txt" <<EOF
 Base successful WIP03 artifact:
@@ -173,6 +101,11 @@ record are inherited unchanged from the prior successful WIP03 artifact.
 
 This is a pre-flash TARGET-TEST candidate. Physical flash was not performed.
 EOF
+
+          (
+            cd "$OUT"
+            sha256sum * > RE-SHA256SUMS.txt
+          )
 
       - name: Show validation
         run: |
