@@ -1,0 +1,219 @@
+name: RE WR1200E kernel and adapter audit 02
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [re-f9k1103-wr1200e-cudy-full-rootfs-port]
+    paths:
+      - '.github/workflows/RE-audit-wr1200e-kernel-adapters-02.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: re-wr1200e-kernel-adapters-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools unzip binutils file python3 kmod
+
+      - name: Acquire exact donor and target
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/re-ka02 RE-WR1200E-KERNEL-ADAPTER-AUDIT-02
+          mkdir -p /tmp/re-ka02/donor /tmp/re-ka02/target RE-WR1200E-KERNEL-ADAPTER-AUDIT-02
+
+          curl -fL --retry 3 \
+            'https://www.cudy.com/cdn/shop/files/WR1200E-R62-2.4.25-20260114-184136-flash.zip?v=12982462962593522136' \
+            -o /tmp/re-ka02/donor/donor.zip
+          echo '2e9a8dafc930a2070d45f706ec5d362428475044dcd791232f86eee7b9f4ef21  /tmp/re-ka02/donor/donor.zip' | sha256sum -c -
+          unzip -q /tmp/re-ka02/donor/donor.zip -d /tmp/re-ka02/donor/unzip
+          DONOR_BIN="$(find /tmp/re-ka02/donor/unzip -type f -name '*.bin' | head -n1)"
+          echo '086055b0227910f9ddabbb13bfa6b06a3850105bd46a3572b76116bf5a3043fa  '"$DONOR_BIN" | sha256sum -c -
+
+          gh run download 37248840659 \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name F9K1103-CUDY-WIP03-RADIOFIX-FAST-REPACK-V2 \
+            --dir /tmp/re-ka02/target/artifact
+          TARGET_BIN="$(find /tmp/re-ka02/target/artifact -type f -name '*sysupgrade.bin' | head -n1)"
+          echo '1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560  '"$TARGET_BIN" | sha256sum -c -
+
+          python3 - "$DONOR_BIN" /tmp/re-ka02/donor/rootfs.squashfs "$TARGET_BIN" /tmp/re-ka02/target/rootfs.squashfs <<'PY'
+          import pathlib,sys
+          for src,dst in ((sys.argv[1],sys.argv[2]),(sys.argv[3],sys.argv[4])):
+              b=pathlib.Path(src).read_bytes()
+              off=b.find(b'hsqs')
+              if off < 0: raise SystemExit(f"squashfs not found: {src}")
+              pathlib.Path(dst).write_bytes(b[off:])
+          PY
+
+          sudo unsquashfs -no-progress -d /tmp/re-ka02/donor/rootfs /tmp/re-ka02/donor/rootfs.squashfs >/dev/null
+          sudo unsquashfs -no-progress -d /tmp/re-ka02/target/rootfs /tmp/re-ka02/target/rootfs.squashfs >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" /tmp/re-ka02/donor/rootfs /tmp/re-ka02/target/rootfs
+
+      - name: Kernel capability and adapter forensics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import csv,hashlib,json,os,pathlib,subprocess,difflib,re,collections
+          D=pathlib.Path('/tmp/re-ka02/donor/rootfs')
+          T=pathlib.Path('/tmp/re-ka02/target/rootfs')
+          O=pathlib.Path('RE-WR1200E-KERNEL-ADAPTER-AUDIT-02')
+          O.mkdir(exist_ok=True)
+
+          def sha(p):
+              h=hashlib.sha256()
+              with open(p,'rb') as f:
+                  for b in iter(lambda:f.read(1024*1024),b''): h.update(b)
+              return h.hexdigest()
+
+          def run(args):
+              try:return subprocess.check_output(args,text=True,stderr=subprocess.STDOUT)
+              except subprocess.CalledProcessError as e:return e.output
+              except Exception as e:return str(e)
+
+          def iself(p):
+              try:return p.read_bytes()[:4]==b'\x7fELF'
+              except:return False
+
+          # Kernel module capability map. Donor .ko bytes are never accepted as target truth.
+          def modules(root):
+              out={}
+              for p in root.glob('lib/modules/*/*.ko'):
+                  out[p.name]=p
+              return out
+          dm,tm=modules(D),modules(T)
+          allnames=sorted(set(dm)|set(tm))
+          krows=[]
+          for name in allnames:
+              dp,tp=dm.get(name),tm.get(name)
+              if dp and tp: status='TARGET_EQUIVALENT_PRESENT'
+              elif dp: status='TARGET_REBUILD_OR_FEATURE_ADAPTER_REQUIRED'
+              else: status='TARGET_ONLY'
+              krows.append({
+                  'module':name,
+                  'status':status,
+                  'donor_path':str(dp.relative_to(D)) if dp else '',
+                  'target_path':str(tp.relative_to(T)) if tp else '',
+                  'donor_sha256':sha(dp) if dp else '',
+                  'target_sha256':sha(tp) if tp else '',
+                  'donor_vermagic':run(['modinfo','-F','vermagic',str(dp)]).strip() if dp else '',
+                  'target_vermagic':run(['modinfo','-F','vermagic',str(tp)]).strip() if tp else '',
+              })
+          with open(O/'RE-KMOD-CAPABILITY-GAP.csv','w',newline='') as f:
+              w=csv.DictWriter(f,fieldnames=krows[0].keys());w.writeheader();w.writerows(krows)
+
+          # Explicit adapter queue from refined full-rootfs pass.
+          candidates=[
+              'etc/hotplug.d/gmac/08-wan-detect',
+              'etc/hotplug.d/gmac/10-odhcp6c',
+              'etc/hotplug.d/wandetect/08-wan-detect',
+              'lib/ramips.sh',
+              'sbin/smp.sh',
+              'sbin/wandetect',
+              'usr/bin/bdinfo',
+              'usr/lib/libbdinfo.so',
+              'usr/lib/lua/luci/apprpc/eth.lua',
+              'usr/lib/lua/mcore.lua',
+          ]
+
+          srcdir=O/'RE-ADAPTER-SOURCES'
+          srcdir.mkdir()
+          rows=[]
+          for rel in candidates:
+              dp,tp=D/rel,T/rel
+              dr=srcdir/('RE-DONOR__'+rel.replace('/','__'))
+              tr=srcdir/('RE-TARGET__'+rel.replace('/','__'))
+              if dp.exists() and dp.is_file():
+                  dr.write_bytes(dp.read_bytes())
+              if tp.exists() and tp.is_file():
+                  tr.write_bytes(tp.read_bytes())
+
+              delf=iself(dp) if dp.exists() and dp.is_file() else False
+              telf=iself(tp) if tp.exists() and tp.is_file() else False
+              row={
+                  'path':rel,
+                  'donor_exists':dp.exists(),
+                  'target_exists':tp.exists(),
+                  'donor_sha256':sha(dp) if dp.exists() and dp.is_file() else '',
+                  'target_sha256':sha(tp) if tp.exists() and tp.is_file() else '',
+                  'byte_identical':bool(dp.exists() and tp.exists() and dp.is_file() and tp.is_file() and sha(dp)==sha(tp)),
+                  'donor_file':run(['file','-b',str(dp)]).strip() if dp.exists() else '',
+                  'target_file':run(['file','-b',str(tp)]).strip() if tp.exists() else '',
+              }
+              rows.append(row)
+
+              detail=[f'PATH={rel}',*[
+                  f'{k.upper()}={v}' for k,v in row.items() if k!='path'
+              ]]
+              if dp.exists() and dp.is_file():
+                  detail += ['','--- DONOR STRINGS ---',run(['strings','-a',str(dp)])]
+                  if delf: detail += ['','--- DONOR READELF ---',run(['readelf','-a',str(dp)])]
+              if tp.exists() and tp.is_file():
+                  detail += ['','--- TARGET STRINGS ---',run(['strings','-a',str(tp)])]
+                  if telf: detail += ['','--- TARGET READELF ---',run(['readelf','-a',str(tp)])]
+              (O/('RE-ADAPTER-FORENSIC__'+rel.replace('/','__')+'.txt')).write_text('\n'.join(map(str,detail)),errors='replace')
+
+              # Text diff when both sides are readable text.
+              if dp.exists() and tp.exists() and dp.is_file() and tp.is_file() and not delf and not telf:
+                  try:
+                      a=dp.read_text(errors='strict').splitlines()
+                      b=tp.read_text(errors='strict').splitlines()
+                      ud=list(difflib.unified_diff(a,b,fromfile='DONOR/'+rel,tofile='TARGET/'+rel,lineterm=''))
+                      (O/('RE-ADAPTER-DIFF__'+rel.replace('/','__')+'.txt')).write_text('\n'.join(ud)+'\n')
+                  except: pass
+
+          with open(O/'RE-ADAPTER-EXACT-COMPARE.csv','w',newline='') as f:
+              w=csv.DictWriter(f,fieldnames=rows[0].keys());w.writeheader();w.writerows(rows)
+
+          # Targeted bdinfo contract leads.
+          for rel in ('usr/bin/bdinfo','usr/lib/libbdinfo.so'):
+              p=D/rel
+              if not p.exists(): continue
+              strings=run(['strings','-a',str(p)]).splitlines()
+              needles=('mtd','/dev/','board','model','mac','hmac','pin','country','fuuid','uuid','checkuuid','dbg','factory','flash')
+              selected=[x for x in strings if any(n.lower() in x.lower() for n in needles)]
+              (O/('RE-BDINFO-CONTRACT-STRINGS__'+rel.replace('/','__')+'.txt')).write_text('\n'.join(selected)+'\n')
+
+          dc=collections.Counter(x['status'] for x in krows)
+          summary=[
+              'RE-WR1200E-KERNEL-ADAPTER-AUDIT-02',
+              f'DONOR_KMOD_COUNT={len(dm)}',
+              f'TARGET_KMOD_COUNT={len(tm)}',
+              f'KMOD_COMMON={dc["TARGET_EQUIVALENT_PRESENT"]}',
+              f'KMOD_DONOR_MISSING_ON_TARGET={dc["TARGET_REBUILD_OR_FEATURE_ADAPTER_REQUIRED"]}',
+              f'KMOD_TARGET_ONLY={dc["TARGET_ONLY"]}',
+              f'ADAPTER_CANDIDATE_COUNT={len(candidates)}',
+              'MCORE=TARGET_VERIFIED',
+              'BDINFO=ADAPTER_REQUIRED_PENDING_CONTRACT',
+              'DONOR_KMOD_BYTES_ARE_NEVER_TARGET_TRUTH',
+          ]
+          (O/'RE-SUMMARY.txt').write_text('\n'.join(summary)+'\n')
+          PY
+
+          (
+            cd RE-WR1200E-KERNEL-ADAPTER-AUDIT-02
+            find . -type f -name 'RE-*' -print0 | sort -z | xargs -0 sha256sum > RE-SHA256SUMS.txt
+          )
+          tar -czf RE-WR1200E-KERNEL-ADAPTER-AUDIT-02.tar.gz RE-WR1200E-KERNEL-ADAPTER-AUDIT-02
+          sha256sum RE-WR1200E-KERNEL-ADAPTER-AUDIT-02.tar.gz > RE-WR1200E-KERNEL-ADAPTER-AUDIT-02.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-WR1200E-KERNEL-ADAPTER-AUDIT-02
+          path: |
+            RE-WR1200E-KERNEL-ADAPTER-AUDIT-02.tar.gz
+            RE-WR1200E-KERNEL-ADAPTER-AUDIT-02.tar.gz.sha256
