@@ -1,0 +1,258 @@
+name: RE Cudy bdinfo and wandetect contract 04
+
+on:
+  push:
+    branches: [re-f9k1103-wr1200e-cudy-full-rootfs-port]
+    paths:
+      - '.github/workflows/RE-audit-bdinfo-wandetect-contract-04.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: re-cudy-contract04-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools unzip binutils file qemu-user-static strace python3
+
+      - name: Acquire exact WR1200E donor
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/re-contract04 RE-CUDY-BDINFO-WANDETECT-CONTRACT-04
+          mkdir -p /tmp/re-contract04 RE-CUDY-BDINFO-WANDETECT-CONTRACT-04
+          URL='https://www.cudy.com/cdn/shop/files/WR1200E-R62-2.4.25-20260114-184136-flash.zip?v=12982462962593522136'
+          ZIP_SHA='2e9a8dafc930a2070d45f706ec5d362428475044dcd791232f86eee7b9f4ef21'
+          BIN_SHA='086055b0227910f9ddabbb13bfa6b06a3850105bd46a3572b76116bf5a3043fa'
+          curl -fL --retry 3 "$URL" -o /tmp/re-contract04/donor.zip
+          echo "$ZIP_SHA  /tmp/re-contract04/donor.zip" | sha256sum -c -
+          unzip -q /tmp/re-contract04/donor.zip -d /tmp/re-contract04/unzip
+          BIN="$(find /tmp/re-contract04/unzip -type f -name '*.bin' | head -n1)"
+          test -n "$BIN"
+          echo "$BIN_SHA  $BIN" | sha256sum -c -
+          python3 - "$BIN" <<'PY'
+          import pathlib,sys
+          b=pathlib.Path(sys.argv[1]).read_bytes()
+          i=b.find(b'hsqs')
+          if i < 0: raise SystemExit('squashfs missing')
+          pathlib.Path('/tmp/re-contract04/SQUASHFS_OFFSET.txt').write_text(str(i)+'\n')
+          pathlib.Path('/tmp/re-contract04/rootfs.squashfs').write_bytes(b[i:])
+          PY
+          sudo unsquashfs -no-progress -d /tmp/re-contract04/rootfs /tmp/re-contract04/rootfs.squashfs >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" /tmp/re-contract04/rootfs
+
+      - name: Reverse bdinfo caller and MTD contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=/tmp/re-contract04/rootfs
+          O=RE-CUDY-BDINFO-WANDETECT-CONTRACT-04
+
+          {
+            echo '=== FILE ==='
+            file "$R/usr/bin/bdinfo" "$R/usr/lib/libbdinfo.so"
+            echo
+            echo '=== SHA256 ==='
+            sha256sum "$R/usr/bin/bdinfo" "$R/usr/lib/libbdinfo.so" "$R/bin/busybox"
+            echo
+            echo '=== BDINFO BIN STRINGS ==='
+            strings -a -n 3 "$R/usr/bin/bdinfo"
+            echo
+            echo '=== LIBBDINFO STRINGS ==='
+            strings -a -n 3 "$R/usr/lib/libbdinfo.so"
+          } > "$O/RE-BDINFO-BINARY-FORENSICS.txt"
+
+          # Complete rootfs caller inventory, text files only.
+          python3 - <<'PY'
+          import pathlib,re,csv
+          root=pathlib.Path('/tmp/re-contract04/rootfs')
+          rows=[]
+          rx=re.compile(r'\bbdinfo(?:\s+|\()([^\n\r;|&)]*)')
+          for p in root.rglob('*'):
+              if not p.is_file() or p.is_symlink(): continue
+              try:
+                  b=p.read_bytes()
+              except: continue
+              if b'bdinfo' not in b or b'\0' in b[:4096]: continue
+              t=b.decode('utf-8','replace')
+              for i,line in enumerate(t.splitlines(),1):
+                  if 'bdinfo' in line:
+                      rows.append((str(p.relative_to(root)),i,line[:1600]))
+          with open('RE-CUDY-BDINFO-WANDETECT-CONTRACT-04/RE-BDINFO-CALLERS.csv','w',newline='') as f:
+              w=csv.writer(f,quoting=csv.QUOTE_ALL)
+              w.writerow(['path','line','text'])
+              w.writerows(rows)
+          PY
+
+          # Search partition names and board/provisioning hints.
+          grep -R -n -a -E             'mtd|factory|bdinfo|flash_uuid|fuuid|hmac|checkuuid|rom_dbg|rom_develop'             "$R/etc" "$R/lib" "$R/usr" "$R/sbin" "$R/bin" 2>/dev/null             > "$O/RE-BDINFO-MTD-ROOTFS-REFERENCES.txt" || true
+
+          # Synthetic chroot. No host /proc is mounted: fake regular files reveal
+          # exactly what the guest library tries to open/read.
+          C=/tmp/re-contract04/chroot
+          sudo rm -rf "$C"
+          sudo cp -a "$R" "$C"
+          sudo mkdir -p "$C/proc/sys/dev" "$C/dev/mtd" "$C/usr/bin"
+          sudo cp /usr/bin/qemu-mipsel-static "$C/usr/bin/qemu-mipsel-static"
+          cat > /tmp/re-contract04/proc-mtd <<'EOF'
+          dev:    size   erasesize  name
+          mtd0: 00030000 00010000 "u-boot"
+          mtd1: 00010000 00010000 "u-boot-env"
+          mtd2: 00010000 00010000 "factory"
+          mtd3: 00010000 00010000 "debug"
+          mtd4: 00010000 00010000 "backup"
+          mtd5: 00010000 00010000 "bdinfo"
+          mtd6: 007a0000 00010000 "firmware"
+          EOF
+          sudo cp /tmp/re-contract04/proc-mtd "$C/proc/mtd"
+          echo '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef' | sudo tee "$C/proc/sys/dev/flash_uuid" >/dev/null
+          for n in 0 1 2 3 4 5 6; do
+            sudo dd if=/dev/zero of="$C/dev/mtd$n" bs=65536 count=1 status=none
+            sudo cp "$C/dev/mtd$n" "$C/dev/mtd/mtd$n"
+          done
+          # Distinct content in fake factory/bdinfo nodes for traceability.
+          printf 'FACTORY_FAKE_WR1200E_CONTRACT04\n' | sudo dd of="$C/dev/mtd2" conv=notrunc status=none
+          printf 'BDINFO_FAKE_WR1200E_CONTRACT04\n' | sudo dd of="$C/dev/mtd5" conv=notrunc status=none
+          sudo cp "$C/dev/mtd2" "$C/dev/mtd/mtd2"
+          sudo cp "$C/dev/mtd5" "$C/dev/mtd/mtd5"
+
+          : > "$O/RE-BDINFO-QEMU-RESULTS.txt"
+          for cmd in ver list md5 dbg checkuuid check sign mac hmac fuuid factory country region pin board; do
+            echo "===== COMMAND: bdinfo $cmd =====" | tee -a "$O/RE-BDINFO-QEMU-RESULTS.txt"
+            sudo strace -f -s 512               -e trace=openat,open,read,write,lseek,ioctl,stat,fstat,access               -o "$O/RE-BDINFO-QEMU-STRACE-$cmd.txt"               chroot "$C" /usr/bin/qemu-mipsel-static /usr/bin/bdinfo "$cmd"               >> "$O/RE-BDINFO-QEMU-RESULTS.txt" 2>&1 || true
+            echo >> "$O/RE-BDINFO-QEMU-RESULTS.txt"
+          done
+
+          # Concise open/read contract summary from all traces.
+          grep -h -E '/proc/mtd|/dev/mtd|flash_uuid|rom_dbg|rom_develop|rom_release'             "$O"/RE-BDINFO-QEMU-STRACE-*.txt             > "$O/RE-BDINFO-QEMU-IO-CONTRACT.txt" || true
+
+      - name: Reverse wan_detect kernel and userspace contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=/tmp/re-contract04/rootfs
+          O=RE-CUDY-BDINFO-WANDETECT-CONTRACT-04
+          K="$(find "$R/lib/modules" -type f -name 'wan_detect.ko' -print -quit)"
+          test -n "$K"
+
+          {
+            echo "WAN_DETECT_KO=$K"
+            file "$K"
+            sha256sum "$K"
+            echo
+            echo '=== MODINFO ==='
+            modinfo "$K" 2>&1 || true
+            echo
+            echo '=== ELF/SYMBOLS ==='
+            readelf -h "$K" || true
+            readelf -Ws "$K" || true
+            echo
+            echo '=== STRINGS ==='
+            strings -a -n 3 "$K"
+          } > "$O/RE-WANDETECT-KMOD-FORENSICS.txt"
+
+          objdump -dr "$K" > "$O/RE-WANDETECT-KMOD-DISASM.txt" 2>&1 || true
+
+          python3 - <<'PY'
+          import pathlib,csv
+          root=pathlib.Path('/tmp/re-contract04/rootfs')
+          needles=[b'/proc/net/wandetect',b'wandetect',b'wan-detect',b'PROTO',b'linkup',b'linkdown']
+          rows=[]
+          for p in root.rglob('*'):
+              if not p.is_file() or p.is_symlink(): continue
+              try:b=p.read_bytes()
+              except:continue
+              if not any(n.lower() in b.lower() for n in needles): continue
+              if b'\0' in b[:4096]: continue
+              t=b.decode('utf-8','replace')
+              for i,line in enumerate(t.splitlines(),1):
+                  if any(n.decode().lower() in line.lower() for n in needles):
+                      rows.append((str(p.relative_to(root)),i,line[:1600]))
+          with open('RE-CUDY-BDINFO-WANDETECT-CONTRACT-04/RE-WANDETECT-CALLERS.csv','w',newline='') as f:
+              w=csv.writer(f,quoting=csv.QUOTE_ALL)
+              w.writerow(['path','line','text'])
+              w.writerows(rows)
+          PY
+
+          # Preserve exact donor userspace WAN-detect scripts as evidence.
+          mkdir -p "$O/RE-WANDETECT-DONOR-SOURCES"
+          for rel in             sbin/wandetect             etc/hotplug.d/gmac/08-wan-detect             etc/hotplug.d/wandetect/08-wan-detect
+          do
+            if [ -f "$R/$rel" ]; then
+              cp "$R/$rel" "$O/RE-WANDETECT-DONOR-SOURCES/RE-$(echo "$rel" | tr / _)"
+            fi
+          done
+
+          # Extract the procfs + hotplug strings likely to define adapter ABI.
+          strings -a "$K" | grep -E -i             'wandetect|hotplug|ACTION|PROTO|DEVICE|iface|ipaddr|gateway|macaddr|service|dhcp|pppoe|static|linkup|linkdown'             > "$O/RE-WANDETECT-KMOD-CONTRACT-STRINGS.txt" || true
+
+      - name: Generate contract decision
+        shell: bash
+        run: |
+          set -euo pipefail
+          O=RE-CUDY-BDINFO-WANDETECT-CONTRACT-04
+          python3 - <<'PY'
+          import pathlib,re
+          O=pathlib.Path('RE-CUDY-BDINFO-WANDETECT-CONTRACT-04')
+          io=(O/'RE-BDINFO-QEMU-IO-CONTRACT.txt').read_text(errors='replace') if (O/'RE-BDINFO-QEMU-IO-CONTRACT.txt').exists() else ''
+          wk=(O/'RE-WANDETECT-KMOD-CONTRACT-STRINGS.txt').read_text(errors='replace') if (O/'RE-WANDETECT-KMOD-CONTRACT-STRINGS.txt').exists() else ''
+          results=(O/'RE-BDINFO-QEMU-RESULTS.txt').read_text(errors='replace')
+          lines=[
+            '# RE Cudy bdinfo + wan_detect contract 04',
+            '',
+            '## Invariants',
+            '',
+            '- Cudy /bin/busybox: CUDY_PINNED / NEVER_REPLACE',
+            '- Cudy /usr/bin/bdinfo: CUDY_PINNED',
+            '- Cudy /usr/lib/libbdinfo.so: CUDY_PINNED',
+            '- Cudy /sbin/wandetect and Cudy hotplug logic remain donor-owned by default.',
+            '',
+            '## bdinfo observed I/O contract',
+            '',
+            f'- /proc/mtd referenced under QEMU: {"/proc/mtd" in io}',
+            f'- /dev/mtd referenced under QEMU: {"/dev/mtd" in io}',
+            f'- /proc/sys/dev/flash_uuid referenced: {"flash_uuid" in io}',
+            f'- /etc/rom_dbg referenced: {"rom_dbg" in io}',
+            f'- /rom/etc/rom_develop referenced: {"rom_develop" in io}',
+            '',
+            'The original Cudy bdinfo/libbdinfo binaries are not replaced. Any target work must provide the data-access contract beneath them.',
+            '',
+            '## wan_detect observed kernel ABI leads',
+            '',
+            f'- procfs wandetect strings present: {"wandetect" in wk.lower()}',
+            f'- protocol DHCP lead: {"dhcp" in wk.lower()}',
+            f'- protocol PPPoE lead: {"pppoe" in wk.lower()}',
+            f'- hotplug/action lead: {("hotplug" in wk.lower()) or ("action" in wk.lower())}',
+            '',
+            'Exact files, strings, disassembly and rootfs callers are bundled beside this report.',
+            '',
+            'STATUS=SOURCE_BINARY_CONTRACT_AUDITED',
+            'FLASH_AUTHORIZATION=NO'
+          ]
+          (O/'RE-CONTRACT-DECISION-04.md').write_text('\n'.join(lines)+'\n')
+          PY
+
+          (
+            cd "$O"
+            find . -type f -name 'RE-*' -print0 | sort -z | xargs -0 sha256sum > RE-SHA256SUMS.txt
+          )
+          tar -czf RE-CUDY-BDINFO-WANDETECT-CONTRACT-04.tar.gz "$O"
+          sha256sum RE-CUDY-BDINFO-WANDETECT-CONTRACT-04.tar.gz > RE-CUDY-BDINFO-WANDETECT-CONTRACT-04.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-CUDY-BDINFO-WANDETECT-CONTRACT-04
+          path: |
+            RE-CUDY-BDINFO-WANDETECT-CONTRACT-04.tar.gz
+            RE-CUDY-BDINFO-WANDETECT-CONTRACT-04.tar.gz.sha256
