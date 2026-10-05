@@ -1,0 +1,135 @@
+name: RE WR1200E bdinfo firstboot dependencies 09
+
+on:
+  push:
+    branches: [re-f9k1103-wr1200e-cudy-full-rootfs-port]
+    paths:
+      - '.github/workflows/RE-audit-bdinfo-firstboot-dependencies-09.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y squashfs-tools unzip file binutils
+      - name: Extract exact WR1200E donor
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/re09 RE-BDINFO-FIRSTBOOT-DEPENDENCIES-09
+          mkdir -p /tmp/re09 RE-BDINFO-FIRSTBOOT-DEPENDENCIES-09
+          URL='https://www.cudy.com/cdn/shop/files/WR1200E-R62-2.4.25-20260114-184136-flash.zip?v=12982462962593522136'
+          ZIP_SHA='2e9a8dafc930a2070d45f706ec5d362428475044dcd791232f86eee7b9f4ef21'
+          curl -fL --retry 3 "$URL" -o /tmp/re09/donor.zip
+          echo "$ZIP_SHA  /tmp/re09/donor.zip" | sha256sum -c -
+          unzip -q /tmp/re09/donor.zip -d /tmp/re09/unzip
+          BIN="$(find /tmp/re09/unzip -type f -name '*.bin' | head -n1)"
+          python3 - "$BIN" <<'PY'
+          import pathlib,sys
+          b=pathlib.Path(sys.argv[1]).read_bytes()
+          i=b.find(b'hsqs')
+          if i<0: raise SystemExit('squashfs missing')
+          pathlib.Path('/tmp/re09/rootfs.sqfs').write_bytes(b[i:])
+          PY
+          sudo unsquashfs -no-progress -d /tmp/re09/root /tmp/re09/rootfs.sqfs >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" /tmp/re09/root
+      - name: Capture boot-critical bdinfo consumers
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=/tmp/re09/root
+          O=RE-BDINFO-FIRSTBOOT-DEPENDENCIES-09
+          cat > /tmp/re09/paths <<'EOF'
+          lib/functions/bdinfo.sh
+          etc/uci-defaults/11_fix_passwd
+          etc/uci-defaults/30_wlan
+          etc/uci-defaults/98-board
+          etc/uci-defaults/99_oem
+          bin/config_generate
+          lib/preinit/82_factory_mac
+          lib/preinit/99_00_console
+          etc/init.d/uhttpd
+          etc/init.d/dropbear
+          etc/init.d/telnet
+          lib/wifi/radio0-mt7628.sh
+          lib/wifi/radio1-mt7663e.sh
+          EOF
+          : > "$O/RE-FILE-HASHES.txt"
+          while read -r rel; do
+            [ -n "$rel" ] || continue
+            if [ -f "$R/$rel" ]; then
+              sha256sum "$R/$rel" >> "$O/RE-FILE-HASHES.txt"
+              cp "$R/$rel" "$O/RE-DONOR-$(echo "$rel"|tr / _)"
+            else
+              echo "SOURCE_ABSENT  $rel" >> "$O/RE-FILE-HASHES.txt"
+            fi
+          done < /tmp/re09/paths
+
+          grep -R -n -a -E 'bdinfo|fuuid|hmac|pin|checkuuid|factory|country|region|mac|model|board|passwd|password|crypt'             "$R/etc/uci-defaults" "$R/lib/functions" "$R/lib/preinit" "$R/etc/init.d" "$R/bin/config_generate" "$R/lib/wifi"             > "$O/RE-BDINFO-BOOT-CALLERS.txt" || true
+
+          {
+            echo '=== shadow/passwd donor defaults ==='
+            cat "$R/etc/passwd" 2>/dev/null || true
+            echo
+            cat "$R/etc/shadow" 2>/dev/null || true
+            echo
+            echo '=== rom version / board defaults ==='
+            cat "$R/etc/rom_version" 2>/dev/null || true
+          } > "$O/RE-AUTH-BASELINE.txt"
+      - name: Machine classify failure behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib,re,csv
+          O=pathlib.Path('RE-BDINFO-FIRSTBOOT-DEPENDENCIES-09')
+          rows=[]
+          for p in O.glob('RE-DONOR-*'):
+              t=p.read_text(errors='replace')
+              for i,line in enumerate(t.splitlines(),1):
+                  if 'bdinfo' not in line and not re.search(r'fuuid|hmac|checkuuid|pin',line,re.I):
+                      continue
+                  if '||' in line or ('$' + '{') in line and ':-' in line:
+                      mode='EXPLICIT_FALLBACK_LEAD'
+                  elif re.search(r'\[\s+-[nz].*bdinfo|if .*bdinfo|case .*bdinfo',line):
+                      mode='CONDITIONAL_LEAD'
+                  else:
+                      mode='DIRECT_CONSUMER'
+                  rows.append({'file':p.name,'line':i,'mode':mode,'text':line[:1400]})
+          with open(O/'RE-BDINFO-FIRSTBOOT-USAGE.csv','w',newline='') as f:
+              w=csv.DictWriter(f,fieldnames=['file','line','mode','text']);w.writeheader();w.writerows(rows)
+          PY
+          cat > "$O/RE-DECISION-09.md" <<'EOF'
+          # RE — WR1200E bdinfo firstboot dependencies 09
+
+          This artifact captures exact WR1200E R62 / 2.4.25 boot-critical
+          consumers of the original Cudy bdinfo/libbdinfo API.
+
+          Policy:
+          - /bin/busybox = CUDY_PINNED / NEVER_REPLACE
+          - /usr/bin/bdinfo = CUDY_PINNED_ORIGINAL
+          - /usr/lib/libbdinfo.so = CUDY_PINNED_ORIGINAL
+          - no fake RSA signature;
+          - no fake check/checkuuid OK result;
+          - no historical reduced bdinfo shim in the CUDY-FIRST image.
+
+          The included source files are authoritative for deciding which
+          target-side data backing is required before a physical candidate.
+          EOF
+          (
+            cd "$O"
+            find . -type f -name 'RE-*' -print0 | sort -z | xargs -0 sha256sum > RE-SHA256SUMS.txt
+          )
+          tar -czf RE-BDINFO-FIRSTBOOT-DEPENDENCIES-09.tar.gz "$O"
+          sha256sum RE-BDINFO-FIRSTBOOT-DEPENDENCIES-09.tar.gz > RE-BDINFO-FIRSTBOOT-DEPENDENCIES-09.tar.gz.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-BDINFO-FIRSTBOOT-DEPENDENCIES-09
+          path: |
+            RE-BDINFO-FIRSTBOOT-DEPENDENCIES-09.tar.gz
+            RE-BDINFO-FIRSTBOOT-DEPENDENCIES-09.tar.gz.sha256
