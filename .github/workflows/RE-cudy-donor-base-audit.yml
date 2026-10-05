@@ -98,9 +98,9 @@ jobs:
               row['zip_sha256']=sha(d/'fw.zip')
               row['bin_sha256']=sha(d/'firmware.bin')
               row['squashfs_offset']=int((d/'SQUASHFS-OFFSET.txt').read_text().strip())
-              sb=read(d/'SQUASHFS-SUPERBLOCK.txt')
-              m=re.search(r'Filesystem size ([0-9.]+) Kbytes \(([0-9]+) bytes\)', sb)
-              row['squashfs_bytes_used']=int(m.group(2)) if m else 0
+              import struct
+              sq=(d/'rootfs.squashfs').read_bytes()
+              row['squashfs_bytes_used']=struct.unpack_from('<Q',sq,40)[0] if len(sq)>=48 and sq[:4]==b'hsqs' else 0
               row['rootfs_files']=files_tree(root)
               row['rootfs_bytes_unpacked']=size_tree(root)
               for rel,key in [
@@ -322,6 +322,26 @@ jobs:
           verdict.append(f'WR300S_RADIO1_5G_REFS={len(gb)}')
           verdict.append('NOTE=Counts are evidence leads; exact ownership requires reading the generated CSV/diffs.')
           (out/'RE-WR1200V2-vs-WR300S-DEEP-SUMMARY.txt').write_text('\n'.join(verdict)+'\n')
+
+          # Copy exact key files for final WR300S vs WR1200V2 review
+          keyrels=[
+              'usr/lib/lua/luci/gui.lua',
+              'usr/lib/lua/luci/model/cbi/wireless/wds_config.lua',
+              'usr/lib/lua/luci/model/cbi/wireless/config.lua',
+              'usr/lib/lua/luci/model/cbi/wireless/config_general.lua',
+              'usr/lib/lua/luci/model/cbi/wireless/config_combine.lua',
+              'usr/lib/lua/luci/model/cbi/wireless/config_uncombine.lua',
+              'usr/lib/lua/luci/controller/wireless.lua',
+              'etc/uci-defaults/99_oem',
+              'etc/init.d/uhttpd',
+          ]
+          for model,root in ((A,ra),(B,rb)):
+              kd=out/f'RE-{model}-KEYFILES'
+              kd.mkdir(exist_ok=True)
+              for rel in keyrels:
+                  src=root/rel
+                  if src.exists() and src.is_file() and src.stat().st_size < 2_000_000:
+                      (kd/('RE-'+rel.replace('/','__'))).write_bytes(src.read_bytes())
 
           # exact excerpts/default source for review
           for id in ids:
