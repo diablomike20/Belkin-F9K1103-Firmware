@@ -8,6 +8,10 @@ on:
       - 'firmware/f9k1103-lede-17.01.5/RE-build-cudy-first-static-candidate.sh'
       - 'firmware/f9k1103-lede-17.01.5/RE-prepare-wr1200e-cudy-first-stage.sh'
       - 'firmware/f9k1103-lede-17.01.5/cudy-port/RE-*'
+  workflow_run:
+    workflows: ["RE wan_detect build and wireless gate 06"]
+    types: [completed]
+    branches: [re-f9k1103-wr1200e-cudy-full-rootfs-port]
   workflow_dispatch:
 
 permissions:
