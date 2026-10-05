@@ -1,0 +1,66 @@
+name: Compare donor target uhttpd
+
+on:
+  push:
+    branches:
+      - f9k1103-cudy-port-wip03
+    paths:
+      - '.github/workflows/compare-donor-target-uhttpd.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y squashfs-tools unzip curl file
+      - name: Compare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/wip /tmp/donor /tmp/wroot /tmp/droot out-uhttpd
+          mkdir -p /tmp/wip /tmp/donor out-uhttpd
+          ART=11320230824
+          curl -fL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/$ART/zip" -o /tmp/wip.zip
+          unzip -q /tmp/wip.zip -d /tmp/wip
+          IMG=/tmp/wip/RE-F9K1103-LEDE-17.01.5-CUDY-WIP03-RADIOFIX-sysupgrade.bin
+          python3 tools/repack-f9k1103-wip03.py extract-rootfs "$IMG" /tmp/wip.sqfs
+          sudo unsquashfs -no-progress -d /tmp/wroot /tmp/wip.sqfs >/dev/null
+
+          URL='https://www.cudy.com/cdn/shop/files/WR1200V2-R26-2.4.23-20251224-145945-flash.zip?v=10287497656812635253'
+          curl -fL "$URL" -o /tmp/donor.zip
+          unzip -q /tmp/donor.zip -d /tmp/donor
+          BIN="$(find /tmp/donor -maxdepth 1 -type f -name '*-flash.bin' | head -n1)"
+          tail -c +2583296 "$BIN" > /tmp/donor.sqfs
+          sudo unsquashfs -no-progress -d /tmp/droot /tmp/donor.sqfs >/dev/null
+
+          {
+            echo "=== hashes ==="
+            sudo sha256sum /tmp/wroot/usr/sbin/uhttpd /tmp/droot/usr/sbin/uhttpd
+            echo
+            echo "=== sizes/file ==="
+            sudo ls -l /tmp/wroot/usr/sbin/uhttpd /tmp/droot/usr/sbin/uhttpd
+            sudo file /tmp/wroot/usr/sbin/uhttpd /tmp/droot/usr/sbin/uhttpd
+            echo
+            echo "=== package status ==="
+            echo "-- WIP03 --"
+            sudo awk '/^Package: uhttpd$/{p=1} p{print} p&&/^$/{exit}' /tmp/wroot/usr/lib/opkg/status || true
+            echo "-- DONOR --"
+            sudo awk '/^Package: uhttpd$/{p=1} p{print} p&&/^$/{exit}' /tmp/droot/usr/lib/opkg/status || true
+            echo
+            echo "=== status/header-related strings ==="
+            echo "-- WIP03 --"
+            sudo strings -a /tmp/wroot/usr/sbin/uhttpd | grep -Ei 'Status:|Location:|CGI|HTTP/1\.[01]' | head -80 || true
+            echo "-- DONOR --"
+            sudo strings -a /tmp/droot/usr/sbin/uhttpd | grep -Ei 'Status:|Location:|CGI|HTTP/1\.[01]' | head -80 || true
+          } > out-uhttpd/RE-UHTTPD-COMPARE.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DONOR-TARGET-UHTTPD-COMPARE
+          path: out-uhttpd/
