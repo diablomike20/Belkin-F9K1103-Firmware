@@ -54,6 +54,21 @@ Every staging/build pipeline must verify the final `/bin/busybox` SHA-256 agains
 If a future incompatibility is traced to BusyBox behavior, adapt the surrounding target/kernel contract while preserving the Cudy BusyBox binary. A BusyBox replacement requires a new explicit project decision from the user; it is forbidden by the current policy.
 
 
+## Hard invariant — Cudy bdinfo stack
+
+The selected donor copies of:
+
+- `/usr/bin/bdinfo`
+- `/usr/lib/libbdinfo.so`
+
+are **CUDY_PINNED_ORIGINAL**.
+
+They must not be replaced by a shell shim, stock LEDE implementation, OpenWrt substitute, or reimplementation in the production CUDY-FIRST image.
+
+Target adaptation is allowed only **below** this Cudy API boundary: provide the read-only MTD/device-identity data-access contract that the original Cudy library expects.
+
+A missing/invalid Cudy provisioning identity may remain an explicit degraded state during pre-flash engineering. Do not fabricate a vendor-signed identity merely to force `bdinfo check` or `checkuuid` to pass.
+
 ## Target-owned hardware boundary
 
 The following physical truth remains F9K1103-owned:
