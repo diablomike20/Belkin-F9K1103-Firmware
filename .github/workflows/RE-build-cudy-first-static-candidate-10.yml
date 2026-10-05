@@ -27,6 +27,8 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: re-f9k1103-wr1200e-cudy-full-rootfs-port
 
       - name: Install tools
         run: |
