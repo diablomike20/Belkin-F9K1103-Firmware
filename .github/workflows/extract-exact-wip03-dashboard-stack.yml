@@ -1,0 +1,101 @@
+name: Extract exact WIP03 dashboard stack
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - f9k1103-cudy-port-wip03-clean-audit
+    paths:
+      - '.github/workflows/extract-exact-wip03-dashboard-stack.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y squashfs-tools unzip curl file
+      - name: Extract exact flashed WIP03 and donor dashboard stack
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/wip03 /tmp/wroot /tmp/donor /tmp/droot out-dashboard-stack
+          mkdir -p /tmp/wip03 /tmp/donor out-dashboard-stack/WIP03 out-dashboard-stack/DONOR
+
+          ART=11320230824
+          curl -fL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/$ART/zip"             -o /tmp/wip03.zip
+          unzip -q /tmp/wip03.zip -d /tmp/wip03
+          IMG=/tmp/wip03/RE-F9K1103-LEDE-17.01.5-CUDY-WIP03-RADIOFIX-sysupgrade.bin
+          python3 tools/repack-f9k1103-wip03.py extract-rootfs "$IMG" /tmp/wip03.sqfs
+          sudo unsquashfs -no-progress -d /tmp/wroot /tmp/wip03.sqfs >/dev/null
+
+          URL='https://www.cudy.com/cdn/shop/files/WR1200V2-R26-2.4.23-20251224-145945-flash.zip?v=10287497656812635253'
+          curl -fL "$URL" -o /tmp/donor.zip
+          unzip -q /tmp/donor.zip -d /tmp/donor
+          BIN="$(find /tmp/donor -maxdepth 1 -type f -name '*-flash.bin' | head -n1)"
+          tail -c +2583296 "$BIN" > /tmp/donor.sqfs
+          sudo unsquashfs -no-progress -d /tmp/droot /tmp/donor.sqfs >/dev/null
+
+          for side in WIP03 DONOR; do
+            [ "$side" = WIP03 ] && ROOT=/tmp/wroot || ROOT=/tmp/droot
+            O=out-dashboard-stack/$side
+            sudo mkdir -p "$O/usr/lib/lua/luci" "$O/www/luci-static/bootstrap/js" "$O/etc"
+
+            # Entire LuCI Lua tree is small enough and avoids guessing which controller/model is involved.
+            sudo cp -a "$ROOT/usr/lib/lua/luci" "$O/usr/lib/lua/"
+            sudo cp -a "$ROOT/www/luci-static/bootstrap/js" "$O/www/luci-static/bootstrap/" || true
+            sudo cp -a "$ROOT/etc/config" "$O/etc/" || true
+            sudo cp -a "$ROOT/etc/uci-defaults" "$O/etc/" || true
+            sudo cp -a "$ROOT/usr/lib/opkg/status" "$O/OPKG-status.txt" || true
+
+            {
+              echo "=== binaries relevant to dashboard dependencies ==="
+              for p in /usr/bin/bdinfo /usr/bin/iwinfo /sbin/ubus /sbin/uci /usr/bin/lua /usr/sbin/uhttpd /usr/bin/crypt; do
+                if [ -e "$ROOT$p" ]; then
+                  ls -l "$ROOT$p"
+                  file "$ROOT$p"
+                  sha256sum "$ROOT$p"
+                else
+                  echo "MISSING $p"
+                fi
+              done
+            } > "$O/RE-BINARY-INVENTORY.txt"
+
+            {
+              echo "=== route strings by controller ==="
+              find "$ROOT/usr/lib/lua/luci/controller" -type f -print0 | sort -z |               while IFS= read -r -d '' f; do
+                x="$(strings -a "$f" | grep -E 'admin/(network/(devices|wan|lan|wireless|ipv6|vpn)|services/dhcp|system)/(status|wizard)|admin/system/wizard' || true)"
+                [ -z "$x" ] || { echo "--- ${f#$ROOT/} ---"; echo "$x"; }
+              done
+            } > "$O/RE-DASHBOARD-ROUTE-OWNERS.txt"
+
+            {
+              echo "=== external/module strings from dashboard-relevant files ==="
+              find "$ROOT/usr/lib/lua/luci" -type f -print0 |               while IFS= read -r -d '' f; do
+                if strings -a "$f" | grep -Eq 'admin/network/devices/status|admin/network/wan/status|admin/network/lan/status|admin/network/wireless/status|admin/network/ipv6/status|admin/network/vpn/status|admin/services/dhcp/status|admin/system/status|admin/system/wizard'; then
+                  echo "--- ${f#$ROOT/} ---"
+                  strings -a "$f" | grep -E '^(luci\.|nixio|mcore|iwinfo|ubus|uci|swconfig|ifconfig|ip |route |logread|uptime|df |free |bdinfo|/proc/|/sys/|/tmp/|/etc/|/usr/)' | sort -u || true
+                fi
+              done
+            } > "$O/RE-DASHBOARD-DEPENDENCY-STRINGS.txt"
+          done
+
+          sudo chown -R "$(id -u):$(id -g)" out-dashboard-stack
+
+          # File-level comparison of dashboard Lua trees.
+          (cd out-dashboard-stack && diff -qr DONOR/usr/lib/lua/luci WIP03/usr/lib/lua/luci || true)             > out-dashboard-stack/RE-LUCI-TREE-DIFF.txt
+
+          tar -C out-dashboard-stack -czf RE-EXACT-WIP03-DASHBOARD-STACK.tar.gz .
+          sha256sum RE-EXACT-WIP03-DASHBOARD-STACK.tar.gz > RE-EXACT-WIP03-DASHBOARD-STACK.tar.gz.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EXACT-WIP03-DASHBOARD-STACK
+          path: |
+            RE-EXACT-WIP03-DASHBOARD-STACK.tar.gz
+            RE-EXACT-WIP03-DASHBOARD-STACK.tar.gz.sha256
