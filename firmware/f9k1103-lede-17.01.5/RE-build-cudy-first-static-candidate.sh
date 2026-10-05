@@ -45,6 +45,13 @@ unsquashfs -no-progress -d "$WORK/target-root" "$WORK/base/rootfs.squashfs" >/de
 # proven F9K1103 hardware boundary.
 "$STAGE_SCRIPT" "$DONOR_ROOT" "$WORK/target-root" "$WORK/stage"
 
+# Preserve engineering evidence outside the firmware payload. The Cudy rootfs
+# itself must not be polluted with RE checkpoint files.
+for meta in RE-TARGET-HARDWARE-PATHS.txt RE-CUDY-PINNED-SHA256.txt RE-STAGE-STATUS.txt RE-STAGE-SHA256.txt; do
+    [ -f "$WORK/stage/$meta" ] && cp "$WORK/stage/$meta" "$OUT/$meta"
+done
+rm -f "$WORK/stage"/RE-*
+
 KREL="$(basename "$(find "$WORK/stage/lib/modules" -mindepth 1 -maxdepth 1 -type d -print -quit)")"
 [ -n "$KREL" ] || { echo "ERROR: target kernel module release not found" >&2; exit 1; }
 
@@ -145,9 +152,6 @@ done
 } > "$OUT/RE-CANDIDATE-STATUS.txt"
 
 cp "$WORK/base/layout.txt" "$OUT/RE-BASE-LAYOUT.txt"
-cp "$WORK/stage/RE-TARGET-HARDWARE-PATHS.txt" "$OUT/RE-TARGET-HARDWARE-PATHS.txt"
-cp "$WORK/stage/RE-CUDY-PINNED-SHA256.txt" "$OUT/RE-STAGE-CUDY-PINNED-SHA256.txt"
-
 (
     cd "$OUT"
     find . -maxdepth 1 -type f -name 'RE-*' -print0 | sort -z | xargs -0 sha256sum > RE-SHA256SUMS.txt
