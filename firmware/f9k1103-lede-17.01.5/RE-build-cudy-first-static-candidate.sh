@@ -39,7 +39,8 @@ rm -rf "$WORK" "$OUT"
 mkdir -p "$WORK" "$OUT"
 
 python3 "$REPACK" split "$BASE_IMG" "$WORK/base"
-unsquashfs -no-progress -d "$WORK/target-root" "$WORK/base/rootfs.squashfs" >/dev/null
+sudo unsquashfs -no-progress -d "$WORK/target-root" "$WORK/base/rootfs.squashfs" >/dev/null
+sudo chown -R "$(id -u):$(id -g)" "$WORK/target-root"
 
 # The stage builder starts from complete Cudy rootfs and restores only the
 # proven F9K1103 hardware boundary.
@@ -97,7 +98,8 @@ cat "$WORK/base/kernel.bin" "$WORK/rootfs-new.squashfs" "$WORK/base/fwtool-meta.
 
 python3 "$REPACK" validate "$IMAGE" "$OUT/RE-STATIC-VALIDATION.txt"
 python3 "$REPACK" extract-rootfs "$IMAGE" "$WORK/final-rootfs.squashfs"
-unsquashfs -no-progress -d "$WORK/final-root" "$WORK/final-rootfs.squashfs" >/dev/null
+sudo unsquashfs -no-progress -d "$WORK/final-root" "$WORK/final-rootfs.squashfs" >/dev/null
+sudo chown -R "$(id -u):$(id -g)" "$WORK/final-root"
 
 # Firstboot access-safety adapter must survive the pack and donor password
 # logic itself must remain byte-identical.
