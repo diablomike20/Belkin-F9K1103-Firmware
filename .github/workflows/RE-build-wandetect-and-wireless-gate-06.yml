@@ -72,77 +72,52 @@ jobs:
             fi
           done
 
-      - name: Prepare LEDE 17.01.5 module build
+      - name: Prepare exact LEDE 17.01.5 RT3883 SDK
         shell: bash
         run: |
           set -euo pipefail
           cd /tmp/re06
-          git clone --depth 1 --branch v17.01.5 https://github.com/lede-project/source.git lede
-          cd lede
+          SDK_NAME='lede-sdk-17.01.5-ramips-rt3883_gcc-5.4.0_musl-1.1.16.Linux-x86_64.tar.xz'
+          SDK_BASE='https://archive.openwrt.org/releases/17.01.5/targets/ramips/rt3883'
 
-          # Host-build compatibility patches already carried by this repo.
-          cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/010-m4-glibc-change-work-around.patch"             tools/m4/patches/010-glibc-change-work-around.patch
-          cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/RE-m4-1.4.18-glibc-sigstksz.patch"             tools/m4/patches/020-glibc-sigstksz.patch
-          cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/110-findutils-glibc-change-work-around.patch"             tools/findutils/patches/110-glibc-change-work-around.patch
-          cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/125-e2fsprogs-glibc-sysmacros.patch"             tools/e2fsprogs/patches/125-glibc-2.23-sysmacros.patch
-          cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/120-bison-glibc-2.28.patch"             tools/bison/patches/120-glibc-2.28-fseterr.patch
+          curl -fL --retry 3 "$SDK_BASE/sha256sums" -o sha256sums
+          curl -fL --retry 3 "$SDK_BASE/$SDK_NAME" -o "$SDK_NAME"
 
+          grep "  $SDK_NAME$" sha256sums > RE-sdk.sha256
+          test -s RE-sdk.sha256
+          sha256sum -c RE-sdk.sha256
+          cp RE-sdk.sha256 "$GITHUB_WORKSPACE/RE-WANDETECT-WIRELESS-GATE-06/RE-LEDE17-RT3883-SDK-SHA256.txt"
+
+          mkdir -p sdk
+          tar -xJf "$SDK_NAME" -C sdk --strip-components=1
+
+          cd sdk
           mkdir -p package/kernel/re-wandetect-proc-compat/src
-          cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/RE-wandetect-proc-compat.c"             package/kernel/re-wandetect-proc-compat/src/RE-wandetect-proc-compat.c
-          cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/RE-wandetect-proc-compat-Makefile"             package/kernel/re-wandetect-proc-compat/Makefile
+          cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/RE-wandetect-proc-compat.c" \
+            package/kernel/re-wandetect-proc-compat/src/RE-wandetect-proc-compat.c
+          cp "$GITHUB_WORKSPACE/firmware/f9k1103-lede-17.01.5/RE-wandetect-proc-compat-Makefile" \
+            package/kernel/re-wandetect-proc-compat/Makefile
 
-          cat > .config <<'EOF'
-          CONFIG_TARGET_ramips=y
-          CONFIG_TARGET_ramips_rt3883=y
-          CONFIG_TARGET_ramips_rt3883_DEVICE_rt-n56u=y
-          CONFIG_PACKAGE_kmod-re-wandetect-proc-compat=m
-          EOF
+          # The official SDK is already the exact ramips/rt3883 kernel/toolchain
+          # generation used by LEDE 17.01.5. Only enable our target module.
+          echo 'CONFIG_PACKAGE_kmod-re-wandetect-proc-compat=m' >> .config
           make defconfig
 
-      - name: Compile target kernel module
+          {
+            echo "SDK_NAME=$SDK_NAME"
+            grep -E 'CONFIG_TARGET_ramips|CONFIG_TARGET_ramips_rt3883|CONFIG_PACKAGE_kmod-re-wandetect' .config || true
+            find staging_dir -maxdepth 2 -type d -name 'toolchain-mipsel*' -print
+            find build_dir -maxdepth 2 -type d -name 'linux-ramips*' -print
+          } > "$GITHUB_WORKSPACE/RE-WANDETECT-WIRELESS-GATE-06/RE-SDK-BUILD-CONTEXT.txt"
+
+      - name: Compile target kernel module with exact SDK
         shell: bash
         run: |
           set -euo pipefail
-          cd /tmp/re06/lede
+          cd /tmp/re06/sdk
 
-          # LEDE 17.01.5 lists host SCons 2.5.1 unconditionally in tools-y.
-          # SCons is not a dependency of the RT3883 kernel/module build and its
-          # 2.5.1 installer requires Python 2, which modern runners do not ship.
-          # Remove only this unused host tool from the build list; target code,
-          # toolchain and kernel configuration remain unchanged.
-          sed -i 's/ cmake scons bc / cmake bc /' tools/Makefile
-          ! grep -q 'cmake scons bc' tools/Makefile
-
-          # Modern GCC defaults to C++17, while LEDE 17.01.5 mklibs 0.1.35
-          # still uses dynamic exception specifications. Build this historical
-          # HOST tool as GNU++11 only. This does not alter target C/C++ flags,
-          # kernel code or Cudy userspace.
-          printf '\nHOST_CXXFLAGS += -std=gnu++11\n' >> tools/mklibs/Makefile
-          tail -n 4 tools/mklibs/Makefile
-
-          # LEDE 17.01.5 host tools predate modern GCC/libstdc++ defaults.
-          # Keep this scoped to HOST tools only.
-          export CXXFLAGS="${CXXFLAGS:-} -std=gnu++11"
-
-          # CMake 3.7.1 relied on an indirect <limits> include that modern
-          # libstdc++ no longer provides. Add the missing standard header to
-          # the host source through an OpenWrt host patch; target code is
-          # untouched.
-          mkdir -p tools/cmake/patches
-          printf '%s\n' \
-            '--- a/Source/cmServerProtocol.cxx' \
-            '+++ b/Source/cmServerProtocol.cxx' \
-            '@@ -1,5 +1,6 @@' \
-            ' /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying' \
-            '    file Copyright.txt or https://cmake.org/licensing for details.  */' \
-            '+#include <limits>' \
-            ' #include "cmServerProtocol.h"' \
-            ' ' \
-            > tools/cmake/patches/999-modern-libstdcpp-limits.patch
-
-          make -j2 tools/install V=s
-          make -j2 toolchain/install V=s
-          make -j2 target/linux/compile V=s
+          # No target Cudy userspace is compiled here. This builds only the
+          # target-side procfs ABI module against the exact 17.01.5 RT3883 SDK.
           make -j2 package/re-wandetect-proc-compat/compile V=s
 
           KO="$(find build_dir -type f -name 're_wandetect_compat.ko' -print -quit)"
@@ -150,7 +125,8 @@ jobs:
           file "$KO" | tee "$GITHUB_WORKSPACE/RE-WANDETECT-WIRELESS-GATE-06/RE-WANDETECT-KMOD-FILE.txt"
           sha256sum "$KO" | tee "$GITHUB_WORKSPACE/RE-WANDETECT-WIRELESS-GATE-06/RE-WANDETECT-KMOD-SHA256.txt"
           modinfo "$KO" > "$GITHUB_WORKSPACE/RE-WANDETECT-WIRELESS-GATE-06/RE-WANDETECT-KMOD-MODINFO.txt" 2>&1 || true
-          strings -a "$KO" | grep -E 'wandetect|ipaddr|gateway|macaddr|iface|proto|service|auto-detect'             > "$GITHUB_WORKSPACE/RE-WANDETECT-WIRELESS-GATE-06/RE-WANDETECT-KMOD-CONTRACT.txt"
+          strings -a "$KO" | grep -E 'wandetect|ipaddr|gateway|macaddr|iface|proto|service|auto-detect' \
+            > "$GITHUB_WORKSPACE/RE-WANDETECT-WIRELESS-GATE-06/RE-WANDETECT-KMOD-CONTRACT.txt"
           cp "$KO" "$GITHUB_WORKSPACE/RE-WANDETECT-WIRELESS-GATE-06/RE-re_wandetect_compat.ko"
 
       - name: Gate and package
