@@ -294,10 +294,10 @@ jobs:
               return outrows
           toks=['radio1','wlan10','wlan1','mt7663','mt761','5G','5g','HT80','VHT','802.11ac','11ac']
           ga,gb=grep_lines(ra,toks),grep_lines(rb,toks)
-          with open(out/'RE-WR1200V2-vs-WR300S-RADIO1-5G-EVIDENCE.csv','w',newline='') as f:
-              w=csv.writer(f,quoting=csv.QUOTE_ALL);w.writerow(['model','path','line','text'])
-              for p,i,l in ga:w.writerow([A,p,i,l])
-              for p,i,l in gb:w.writerow([B,p,i,l])
+          with open(out/'RE-WR1200V2-vs-WR300S-RADIO1-5G-EVIDENCE.jsonl','w') as f:
+              for model,rows in ((A,ga),(B,gb)):
+                  for p,i,l in rows:
+                      f.write(json.dumps({'model':model,'path':p,'line':i,'text':l},ensure_ascii=True)+'\\n')
 
           # daemon/service comparison
           service_names=['cmagent','cmsd','mosquitto','hcshd','pingcheck','mcore','bdinfo','hyfibr']
