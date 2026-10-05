@@ -126,7 +126,8 @@ jobs:
 
           hard_prefixes=(
               'lib/modules/','boot/','etc/board.d/','lib/preinit/',
-              'lib/upgrade/','lib/firmware/','etc/hotplug.d/firmware/',
+              'lib/upgrade/','lib/firmware/','lib/wifi/','etc/hotplug.d/firmware/',
+              'etc/modules.d/','etc/modules-boot.d/',
               'etc/modules.d/','etc/modules-boot.d/','etc/wireless/',
           )
           hard_exact={
@@ -280,8 +281,8 @@ jobs:
 
           # Exact target-owned hardware layer copied from known booting WIP03 baseline.
           replace_paths=[
-              'lib/modules','lib/firmware','etc/board.d','lib/preinit','lib/upgrade',
-              'lib/ramips.sh'
+              'lib/modules','lib/firmware','lib/wifi','etc/modules.d','etc/modules-boot.d',
+              'etc/board.d','lib/preinit','lib/upgrade','lib/ramips.sh'
           ]
           copied=[]
           for rel in replace_paths:
