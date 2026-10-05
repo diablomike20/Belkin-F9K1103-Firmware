@@ -62,7 +62,8 @@ jobs:
           pathlib.Path(sys.argv[2]).write_text(str(off)+"\n")
           pathlib.Path(sys.argv[3]).write_bytes(b[off:])
           PY
-            sudo unsquashfs -no-progress -d "$d/rootfs" "$d/rootfs.squashfs" >/dev/null\n            sudo chown -R "$(id -u):$(id -g)" "$d/rootfs"
+            sudo unsquashfs -no-progress -d "$d/rootfs" "$d/rootfs.squashfs" >/dev/null
+            sudo chown -R "$(id -u):$(id -g)" "$d/rootfs"
           done < /tmp/re-cudy-donor-audit/candidates.tsv
 
       - name: Build exact comparison report
