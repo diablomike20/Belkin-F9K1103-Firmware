@@ -127,17 +127,35 @@ jobs:
           hard_prefixes=(
               'lib/modules/','boot/','etc/board.d/','lib/preinit/',
               'lib/upgrade/','lib/firmware/','etc/hotplug.d/firmware/',
+              'etc/modules.d/','etc/modules-boot.d/','etc/wireless/',
+          )
+          hard_exact={
+              'lib/wifi/radio0-mt7628.sh',
+              'lib/wifi/radio1-mt7663e.sh',
+              'usr/bin/iwinfo',
+              'usr/lib/libiwinfo.so',
+              'usr/lib/lua/iwinfo.so',
+              'usr/share/libiwinfo/hardware.txt',
+              'usr/bin/ated',
+          }
+          adapter_prefixes=(
+              'etc/hotplug.d/gmac/',
+              'etc/hotplug.d/wandetect/',
           )
           safety_prefixes=(
               'dev/','proc/','sys/','tmp/','overlay/','rom/',
           )
           adapter_exact={
               'etc/config/network','etc/config/wireless',
-              'lib/ramips.sh','usr/bin/bdinfo','usr/lib/lua/mcore.lua'
+              'lib/ramips.sh',
+              'usr/bin/bdinfo','usr/lib/libbdinfo.so',
+              'usr/lib/lua/mcore.lua',
+              'sbin/wandetect','sbin/smp.sh',
+              'usr/lib/lua/luci/apprpc/eth.lua'
           }
           hw_tokens=[
               b'mt7628',b'mt7663',b'mt761',b'ralink',b'ra0',b'rai0',
-              b'/proc/rt',b'mii_mgr',b'iwpriv',b'factory',b'eeprom',
+              b'/proc/rt',b'mii_mgr',b'iwpriv',b'eeprom',
               b'/sys/class/gpio',b'/dev/mtd'
           ]
 
@@ -145,7 +163,7 @@ jobs:
           donor_libs=collections.defaultdict(list)
           for root,bucket in ((T,target_libs),(D,donor_libs)):
               for p in root.rglob('*'):
-                  if p.is_file() and not p.is_symlink() and (p.name.endswith('.so') or '.so.' in p.name):
+                  if (p.is_file() or p.is_symlink()) and (p.name.endswith('.so') or '.so.' in p.name):
                       bucket[p.name].append(str(p.relative_to(root)))
 
           rows=[]
@@ -166,9 +184,9 @@ jobs:
               reason='Cudy-owned by default'
               if rel.startswith(safety_prefixes) or typ=='special':
                   cls='EXCLUDE_SAFETY'; reason='runtime pseudo-filesystem or special node'
-              elif rel.startswith(hard_prefixes):
-                  cls='HARDWARE_REPLACE'; reason='kernel/board/firmware hardware boundary'
-              elif rel in adapter_exact:
+              elif rel.startswith(hard_prefixes) or rel in hard_exact:
+                  cls='HARDWARE_REPLACE'; reason='kernel/board/radio/firmware hardware boundary'
+              elif rel in adapter_exact or rel.startswith(adapter_prefixes):
                   cls='ADAPTER_REQUIRED'; reason='physical board/network/radio identity boundary'
 
               target=T/rel
@@ -185,8 +203,8 @@ jobs:
                   try:b=p.read_bytes()
                   except:b=b''
                   hardware_strings=[x.decode('ascii','ignore') for x in hw_tokens if x.lower() in b.lower()]
-                  if hardware_strings and cls=='NATIVE_CANDIDATE':
-                      cls='ADAPTER_REQUIRED';reason='contains donor hardware-facing tokens: '+','.join(hardware_strings[:6])
+                  # Hardware-facing strings are retained as evidence only.
+                  # CUDY-FIRST rule: a string hit alone is not permission to replace donor content.
                   if iself(p):
                       elf=elfinfo(p)
                       unresolved=[n for n in elf['needed'] if n not in donor_libs and n not in target_libs]
@@ -218,6 +236,33 @@ jobs:
               w=csv.DictWriter(f,fieldnames=fields);w.writeheader()
               for r in elfs:
                   q=dict(r);q['needed']=';'.join(q['needed']);w.writerow(q)
+
+          target_elfs=[]
+          for p in sorted(T.rglob('*')):
+              if not p.is_file() or p.is_symlink() or not iself(p): continue
+              e=elfinfo(p)
+              target_elfs.append({'path':str(p.relative_to(T)),'size':p.stat().st_size,**e})
+          with open(O/'RE-TARGET-ELF-ABI.csv','w',newline='') as f:
+              fields=['path','size','class','data','machine','flags','interp','needed']
+              w=csv.DictWriter(f,fieldnames=fields);w.writeheader()
+              for r in target_elfs:
+                  q=dict(r);q['needed']=';'.join(q['needed']);w.writerow(q)
+
+          donor_abi_profiles=collections.Counter((x['class'],x['data'],x['machine'],x['flags']) for x in elfs)
+          target_abi_profiles=collections.Counter((x['class'],x['data'],x['machine'],x['flags']) for x in target_elfs)
+          donor_mips32r2_o32=sum('mips32r2' in x['flags'] and 'o32' in x['flags'] and 'MIPS' in x['machine'] for x in elfs)
+          target_mips32r2_o32=sum('mips32r2' in x['flags'] and 'o32' in x['flags'] and 'MIPS' in x['machine'] for x in target_elfs)
+          abi_lines=[
+              f'DONOR_ELF_COUNT={len(elfs)}',
+              f'TARGET_ELF_COUNT={len(target_elfs)}',
+              f'DONOR_MIPS32R2_O32={donor_mips32r2_o32}',
+              f'TARGET_MIPS32R2_O32={target_mips32r2_o32}',
+              'DONOR_PROFILES:',
+              *[f'{n} | {a} | {d} | {m} | {fl}' for (a,d,m,fl),n in donor_abi_profiles.most_common()],
+              'TARGET_PROFILES:',
+              *[f'{n} | {a} | {d} | {m} | {fl}' for (a,d,m,fl),n in target_abi_profiles.most_common()],
+          ]
+          (O/'RE-ELF-ABI-PROFILE.txt').write_text('\n'.join(abi_lines)+'\n')
 
           # Build a non-flashable staged userspace tree: complete donor minus exact
           # target-owned hardware/safety objects. Adapters are NOT replaced here.
@@ -270,6 +315,9 @@ jobs:
               'POLICY=CUDY-FIRST / TARGET-ADAPTER-ONLY-WHERE-PROVEN',
               *[f'{k}={counts[k]}' for k in ('NATIVE_CANDIDATE','ADAPTER_REQUIRED','HARDWARE_REPLACE','EXCLUDE_SAFETY')],
               f'DONOR_ELF_COUNT={len(elfs)}',
+              f'TARGET_ELF_COUNT={len(target_elfs)}',
+              f'DONOR_MIPS32R2_O32={donor_mips32r2_o32}',
+              f'TARGET_MIPS32R2_O32={target_mips32r2_o32}',
               f'UNRESOLVED_ELF_COUNT={sum(bool(x["unresolved"]) for x in elfs)}',
               f'STAGE_SQUASHFS_BYTES={sq.stat().st_size}',
               'TARGET_HARDWARE_PATHS_COPIED='+','.join(copied),
@@ -302,6 +350,8 @@ jobs:
           grep -q '^STAGE_STATUS=NON_FLASHABLE_COMPATIBILITY_ARTIFACT' "$O/RE-SUMMARY.txt"
           test -s "$O/RE-FULL-ROOTFS-CLASSIFICATION.csv"
           test -s "$O/RE-DONOR-ELF-ABI.csv"
+          test -s "$O/RE-TARGET-ELF-ABI.csv"
+          test -s "$O/RE-ELF-ABI-PROFILE.txt"
           test -s "$O/RE-ADAPTER-QUEUE.csv"
           test -s "$O/RE-STAGE-MANIFEST.txt"
           test -s "$O/RE-WR1200E-CUDY-FIRST-STAGE.squashfs"
