@@ -43,7 +43,7 @@ jobs:
           curl -fL             https://github.com/dweekly/luad/releases/download/v0.3.1/luad-0.3.1-linux-x86_64.tar.gz             -o /tmp/luad.tar.gz
           echo '5e297699463f04e19fda3a867fb9d36d444f848ee0ddf560b6ae383568ec0053  /tmp/luad.tar.gz' | sha256sum -c -
           tar -xzf /tmp/luad.tar.gz -C /tmp
-          LUAD="$(find /tmp -type f -name luad -perm -111 | head -n1)"
+          LUAD="$(find /tmp/luad-0.3.1-linux-x86_64 -type f -name luad -perm -111 | head -n1)"
           echo "LUAD=$LUAD" >> "$GITHUB_ENV"
 
       - name: Disassemble auth and routing bytecode
