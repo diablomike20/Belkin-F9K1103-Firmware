@@ -350,6 +350,16 @@ function dispatch(request)
 		local sdat = (util.ubus("session", "get", { ubus_rpc_session = sess }) or { }).values
 		local user, token
 
+		-- Cudy presentation ACLs are keyed by "admin", while the actual LEDE
+		-- security principal is root.  Treat root as satisfying an admin-only
+		-- Cudy route without changing the stored session principal.
+		local function auth_allowed(list, u)
+			if util.contains(list, u) then
+				return true
+			end
+			return (u == "root") and util.contains(list, "admin")
+		end
+
 		if sdat then
 			user = sdat.user
 			token = sdat.token
@@ -361,11 +371,11 @@ function dispatch(request)
 			end
 		end
 
-		if not util.contains(accs, user) then
+		if not auth_allowed(accs, user) then
 			if authen then
 				local user, sess = authen(sys.user.checkpasswd, accs, def, track.sysauth_template)
 				local token
-				if not user or not util.contains(accs, user) then
+				if not user or not auth_allowed(accs, user) then
 					return
 				else
 					if not sess then
