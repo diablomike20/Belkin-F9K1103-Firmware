@@ -20,6 +20,11 @@ uci set luci.main.showuser='0'
 uci set luci.sauth.defpasswd='0'
 uci -q delete luci.sauth.salt
 
+# Run LuCI through the LEDE uhttpd native Lua handler.  Physical WIP03
+# validation proved that generic CGI mode leaks CGI Status lines into the body.
+uci set uhttpd.main.lua_prefix='/cgi-bin/luci'
+uci set uhttpd.main.lua_handler='/usr/lib/lua/luci/sgi/uhttpd.lua'
+
 # Disable Cudy cloud planes; no vendor cloud daemon is imported.
 [ -e /etc/config/cmagent ] || touch /etc/config/cmagent
 [ -e /etc/config/cmsd ] || touch /etc/config/cmsd
@@ -77,4 +82,5 @@ uci commit luci
 uci commit cmagent
 uci commit cmsd
 uci commit wireless
+uci commit uhttpd
 exit 0
