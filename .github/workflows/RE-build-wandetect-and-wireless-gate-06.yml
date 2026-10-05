@@ -141,6 +141,7 @@ jobs:
           done
           {
             echo 'KMOD_COMPILE=PASS'
+            echo 'KMOD_TOOLCHAIN=EXACT_LEDE_17.01.5_RAMIPS_RT3883_SDK'
             echo 'CUDY_USERSPACE_WANDETECT=UNCHANGED'
             echo 'CUDY_BUSYBOX=NEVER_REPLACE'
             echo 'FLASH_AUTHORIZATION=NO'
