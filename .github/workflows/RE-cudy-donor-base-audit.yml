@@ -1,0 +1,210 @@
+name: RE Cudy donor base audit
+
+on:
+  push:
+    branches: [re-cudy-donor-base-audit]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y squashfs-tools unzip file rsync
+
+      - name: Download and extract candidate Cudy firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/re-cudy-donor-audit RE-CUDY-DONOR-BASE-AUDIT
+          mkdir -p /tmp/re-cudy-donor-audit RE-CUDY-DONOR-BASE-AUDIT
+
+          cat > /tmp/re-cudy-donor-audit/candidates.tsv <<'EOF'
+          WR1200V3_R149_2.5.24|https://www.cudy.com/cdn/shop/files/WR1200V3-R149-2.5.24-20260727-130115-flash.zip?v=13150855755067218599
+          WR1200V2_R26_2.4.23|https://www.cudy.com/cdn/shop/files/WR1200V2-R26-2.4.23-20251224-145945-flash.zip?v=10287497656812635253
+          WR1200E_R62_2.4.25|https://www.cudy.com/cdn/shop/files/WR1200E-R62-2.4.25-20260114-184136-flash.zip?v=12982462962593522136
+          WR1300E_R45_1.15.30|https://www.cudy.com/cdn/shop/files/WR1300E-R45-1.15.30-20230504-170701-flash.zip
+          WR300S_R93_2.4.25|https://www.cudy.com/cdn/shop/files/WR300S-R93-2.4.25-20260106-173004-flash.zip
+          EOF
+
+          while IFS='|' read -r id url; do
+            [ -n "$id" ] || continue
+            d="/tmp/re-cudy-donor-audit/$id"
+            mkdir -p "$d"
+            echo "=== $id ==="
+            curl -fL --retry 3 --retry-delay 2 "$url" -o "$d/fw.zip"
+            sha256sum "$d/fw.zip" > "$d/ZIP-SHA256.txt"
+            unzip -q "$d/fw.zip" -d "$d/unzip"
+            bin="$(find "$d/unzip" -maxdepth 2 -type f -name '*.bin' | head -n1)"
+            [ -n "$bin" ] || { echo "No BIN for $id" >&2; exit 1; }
+            cp "$bin" "$d/firmware.bin"
+            sha256sum "$d/firmware.bin" > "$d/BIN-SHA256.txt"
+            python3 - "$d/firmware.bin" "$d/SQUASHFS-OFFSET.txt" "$d/rootfs.squashfs" <<'PY'
+          import pathlib,sys
+          p=pathlib.Path(sys.argv[1])
+          b=p.read_bytes()
+          candidates=[]
+          for magic in (b'hsqs', b'sqsh'):
+              start=0
+              while True:
+                  i=b.find(magic,start)
+                  if i<0: break
+                  candidates.append(i); start=i+1
+          if not candidates:
+              raise SystemExit("SquashFS magic not found")
+          off=min(candidates)
+          pathlib.Path(sys.argv[2]).write_text(str(off)+"\n")
+          pathlib.Path(sys.argv[3]).write_bytes(b[off:])
+          PY
+            unsquashfs -no-progress -d "$d/rootfs" "$d/rootfs.squashfs" >/dev/null
+          done < /tmp/re-cudy-donor-audit/candidates.tsv
+
+      - name: Build exact comparison report
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib,hashlib,os,json,csv,re,subprocess,collections
+          base=pathlib.Path('/tmp/re-cudy-donor-audit')
+          out=pathlib.Path('RE-CUDY-DONOR-BASE-AUDIT')
+          ids=[x.split('|')[0] for x in (base/'candidates.tsv').read_text().splitlines() if x.strip()]
+          summary=[]
+          manifests={}
+          def sha(p):
+              h=hashlib.sha256()
+              with open(p,'rb') as f:
+                  for b in iter(lambda:f.read(1024*1024),b''): h.update(b)
+              return h.hexdigest()
+          def size_tree(p):
+              return sum(x.stat().st_size for x in p.rglob('*') if x.is_file() and not x.is_symlink())
+          def files_tree(p):
+              return sum(1 for x in p.rglob('*') if x.is_file() and not x.is_symlink())
+          def read(p):
+              try:return p.read_text(errors='replace')
+              except:return ''
+          for id in ids:
+              d=base/id; root=d/'rootfs'
+              row={'id':id}
+              row['zip_bytes']=(d/'fw.zip').stat().st_size
+              row['bin_bytes']=(d/'firmware.bin').stat().st_size
+              row['zip_sha256']=sha(d/'fw.zip')
+              row['bin_sha256']=sha(d/'firmware.bin')
+              row['squashfs_offset']=int((d/'SQUASHFS-OFFSET.txt').read_text().strip())
+              row['rootfs_files']=files_tree(root)
+              row['rootfs_bytes_unpacked']=size_tree(root)
+              for rel,key in [
+                  ('usr/lib/lua/luci','luci_bytes'),('www','www_bytes'),('usr/bin','usr_bin_bytes'),
+                  ('usr/sbin','usr_sbin_bytes'),('etc','etc_bytes'),('lib/modules','modules_bytes')]:
+                  p=root/rel; row[key]=size_tree(p) if p.exists() else 0
+              rel=read(root/'etc/openwrt_release')+'\n'+read(root/'etc/rom_version')+'\n'+read(root/'etc/os-release')
+              row['release']=' '.join(x.strip() for x in rel.splitlines() if x.strip())[:700]
+              # exact service/vendor dependencies
+              names=['bdinfo','mcore','pingcheck','cmagent','cmsd','hcshd','gcom','mosquitto','hyfibr']
+              for n in names:
+                  hits=[str(p.relative_to(root)) for p in root.rglob(n) if p.is_file() or p.is_symlink()]
+                  row[n]=';'.join(hits[:10])
+              ctr=root/'usr/lib/lua/luci/controller'
+              row['controller_files']=files_tree(ctr) if ctr.exists() else 0
+              cbi=root/'usr/lib/lua/luci/model/cbi'
+              row['cbi_files']=files_tree(cbi) if cbi.exists() else 0
+              # executable ELF architecture summary
+              arch=collections.Counter()
+              elf_files=[]
+              for top in ['bin','sbin','usr/bin','usr/sbin','usr/lib','lib']:
+                  p=root/top
+                  if not p.exists(): continue
+                  for f in p.rglob('*'):
+                      if not f.is_file() or f.is_symlink(): continue
+                      try:
+                          head=f.read_bytes()[:4]
+                      except: continue
+                      if head==b'\x7fELF':
+                          elf_files.append(f)
+              for f in elf_files:
+                  try:
+                      desc=subprocess.check_output(['file','-b',str(f)],text=True).strip()
+                  except: desc='?'
+                  if 'MIPS' in desc: k='MIPS'
+                  elif 'ARM' in desc or 'aarch64' in desc: k='ARM'
+                  else:k=desc.split(',')[0]
+                  arch[k]+=1
+              row['elf_count']=len(elf_files)
+              row['elf_arch']=';'.join(f'{k}:{v}' for k,v in arch.items())
+              # important defaults
+              defaults={}
+              for pat in ['etc/uci-defaults/*wlan*','etc/uci-defaults/*network*','etc/uci-defaults/*wireless*','bin/config_generate','lib/wifi/*']:
+                  for f in root.glob(pat):
+                      if f.is_file():
+                          defaults[str(f.relative_to(root))]=sha(f)
+              row['defaults']=';'.join(f'{k}={v}' for k,v in sorted(defaults.items()))
+              # UI manifest
+              man={}
+              for relroot in ['usr/lib/lua/luci','www']:
+                  p=root/relroot
+                  if p.exists():
+                      for f in p.rglob('*'):
+                          if f.is_file() and not f.is_symlink():
+                              man[str(f.relative_to(root))]=sha(f)
+              manifests[id]=man
+              summary.append(row)
+              # candidate detail text
+              detail=out/f'RE-{id}-DETAIL.txt'
+              detail.write_text('\n'.join([
+                  f'ID={id}',f'ZIP_BYTES={row["zip_bytes"]}',f'BIN_BYTES={row["bin_bytes"]}',
+                  f'ZIP_SHA256={row["zip_sha256"]}',f'BIN_SHA256={row["bin_sha256"]}',
+                  f'SQUASHFS_OFFSET={row["squashfs_offset"]}',f'ROOTFS_FILES={row["rootfs_files"]}',
+                  f'ROOTFS_UNPACKED_BYTES={row["rootfs_bytes_unpacked"]}',f'LUCi_BYTES={row["luci_bytes"]}',
+                  f'WWW_BYTES={row["www_bytes"]}',f'MODULES_BYTES={row["modules_bytes"]}',
+                  f'ELF_COUNT={row["elf_count"]}',f'ELF_ARCH={row["elf_arch"]}',
+                  f'RELEASE={row["release"]}',f'DEFAULTS={row["defaults"]}',
+                  *[f'{n.upper()}={row[n]}' for n in names]
+              ])+'\n')
+          # pairwise exact UI file equality
+          pairs=[]
+          for i,a in enumerate(ids):
+              for b in ids[i+1:]:
+                  ma,mb=manifests[a],manifests[b]
+                  common=set(ma)&set(mb)
+                  same=sum(ma[p]==mb[p] for p in common)
+                  union=set(ma)|set(mb)
+                  pairs.append({
+                      'a':a,'b':b,'a_files':len(ma),'b_files':len(mb),'common_paths':len(common),
+                      'identical_common':same,'identical_common_pct':round(100*same/len(common),2) if common else 0,
+                      'identical_union_pct':round(100*same/len(union),2) if union else 0
+                  })
+          with open(out/'RE-CANDIDATE-SUMMARY.csv','w',newline='') as f:
+              w=csv.DictWriter(f,fieldnames=summary[0].keys());w.writeheader();w.writerows(summary)
+          with open(out/'RE-PAIRWISE-UI-HASH-COMPARISON.csv','w',newline='') as f:
+              w=csv.DictWriter(f,fieldnames=pairs[0].keys());w.writeheader();w.writerows(pairs)
+          # exact excerpts/default source for review
+          for id in ids:
+              root=base/id/'rootfs'
+              dd=out/f'RE-{id}-DEFAULTS'
+              dd.mkdir()
+              for pat in ['etc/uci-defaults/*','bin/config_generate']:
+                  for f in root.glob(pat):
+                      if f.is_file() and f.stat().st_size < 500000:
+                          dest=dd/('RE-'+str(f.relative_to(root)).replace('/','__'))
+                          try: dest.write_bytes(f.read_bytes())
+                          except: pass
+          PY
+
+          (
+            cd RE-CUDY-DONOR-BASE-AUDIT
+            sha256sum RE-* > RE-SHA256SUMS.txt || true
+          )
+          tar -czf RE-CUDY-DONOR-BASE-AUDIT-01.tar.gz RE-CUDY-DONOR-BASE-AUDIT
+          sha256sum RE-CUDY-DONOR-BASE-AUDIT-01.tar.gz > RE-CUDY-DONOR-BASE-AUDIT-01.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-CUDY-DONOR-BASE-AUDIT-01
+          path: |
+            RE-CUDY-DONOR-BASE-AUDIT-01.tar.gz
+            RE-CUDY-DONOR-BASE-AUDIT-01.tar.gz.sha256
