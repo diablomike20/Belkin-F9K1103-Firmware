@@ -20,6 +20,13 @@ uci set luci.main.showuser='0'
 uci set luci.sauth.defpasswd='0'
 uci -q delete luci.sauth.salt
 
+# Cudy LuCI is designed to run through uhttpd's native Lua handler, not the
+# generic /cgi-bin fork/exec path.  The physical WIP03 first boot proved that
+# CGI mode leaks "Status: 403/302" into the HTML body.  This LEDE 17.01.5
+# uhttpd uses the legacy two-option syntax for the same donor contract.
+uci set uhttpd.main.lua_prefix='/cgi-bin/luci'
+uci set uhttpd.main.lua_handler='/usr/lib/lua/luci/sgi/uhttpd.lua'
+
 # Disable Cudy cloud planes; no vendor cloud daemon is imported.
 [ -e /etc/config/cmagent ] || touch /etc/config/cmagent
 [ -e /etc/config/cmsd ] || touch /etc/config/cmsd
@@ -77,4 +84,5 @@ uci commit luci
 uci commit cmagent
 uci commit cmsd
 uci commit wireless
+uci commit uhttpd
 exit 0
