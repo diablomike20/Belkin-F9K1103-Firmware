@@ -74,8 +74,10 @@ mkdir -p "$OUT_ROOT/etc/uci-defaults"
 cp -a "$ADAPTER_SRC" "$OUT_ROOT/etc/uci-defaults/99-f9k1103-cudy-hardware"
 chmod 0755 "$OUT_ROOT/etc/uci-defaults/99-f9k1103-cudy-hardware"
 
-# CUDY-PINNED userspace: these files must stay donor-original unless a
-# separate, evidence-backed compatibility change is explicitly approved.
+# CUDY-PINNED userspace.
+# /bin/busybox is NEVER_REPLACE by project policy and any hash mismatch is fatal.
+# bdinfo/libbdinfo are also pinned donor-original unless a separately approved
+# compatibility design explicitly preserves their complete Cudy contract.
 #
 # bdinfo/libbdinfo are Cudy provisioning/device-identity components.
 # BusyBox is kept from the complete donor userspace as well; do not silently
@@ -110,6 +112,7 @@ DONOR=WR1200E_R62_2.4.25
 TARGET_HARDWARE=F9K1103
 MCORE=TARGET_VERIFIED_ADAPTER
 BDINFO=DONOR_ORIGINAL_PENDING_COMPATIBILITY
+BUSYBOX_POLICY=CUDY_PINNED_NEVER_REPLACE
 EOF
 
 find "$OUT_ROOT" -xdev -type f -print0 | sort -z | xargs -0 sha256sum   > "$OUT_ROOT/RE-STAGE-SHA256.txt"
