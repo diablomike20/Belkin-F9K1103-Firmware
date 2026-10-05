@@ -1,0 +1,42 @@
+name: Fetch exact LEDE uhttpd mod lua
+
+on:
+  push:
+    branches:
+      - f9k1103-cudy-port-wip03
+    paths:
+      - '.github/workflows/fetch-exact-uhttpd-mod-lua.yml'
+  workflow_dispatch:
+
+jobs:
+  fetch:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Fetch exact package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          FN='uhttpd-mod-lua_2017-11-04-a235636a-1_mipsel_74kc.ipk'
+          found=0
+          for base in             'https://archive.openwrt.org/releases/17.01.5/packages/mipsel_74kc/base'             'https://archive.openwrt.org/releases/packages-17.01/mipsel_74kc/base'             'https://downloads.openwrt.org/releases/packages-17.01/mipsel_74kc/base'
+          do
+            if curl -fL "$base/$FN" -o "out/$FN"; then
+              echo "$base/$FN" > out/RE-SOURCE-URL.txt
+              found=1
+              break
+            fi
+          done
+          [ "$found" -eq 1 ]
+          sha256sum "out/$FN" > out/RE-SHA256SUMS.txt
+          file "out/$FN" > out/RE-FILE.txt
+          ar t "out/$FN" > out/RE-IPK-MEMBERS.txt
+          mkdir -p /tmp/ipk
+          cd /tmp/ipk
+          ar x "$GITHUB_WORKSPACE/out/$FN"
+          tar -xzf control.tar.gz
+          cat control > "$GITHUB_WORKSPACE/out/RE-CONTROL.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EXACT-UHTTPD-MOD-LUA-LEDE-17.01.5
+          path: out/
