@@ -105,12 +105,13 @@ jobs:
           set -euo pipefail
           cd /tmp/re06/lede
 
-          # LEDE 17.01.5 unconditionally carries host SCons 2.5.1, whose
-          # installer requires Python 2. The wandetect kernel-module build
-          # does not consume SCons. Do not alter target code or toolchain:
-          # satisfy only this unused host-tool stamp on modern runners.
-          mkdir -p staging_dir/host/stamp
-          touch staging_dir/host/stamp/.scons_installed
+          # LEDE 17.01.5 lists host SCons 2.5.1 unconditionally in tools-y.
+          # SCons is not a dependency of the RT3883 kernel/module build and its
+          # 2.5.1 installer requires Python 2, which modern runners do not ship.
+          # Remove only this unused host tool from the build list; target code,
+          # toolchain and kernel configuration remain unchanged.
+          sed -i 's/ cmake scons bc / cmake bc /' tools/Makefile
+          ! grep -q 'cmake scons bc' tools/Makefile
 
           make -j2 tools/install V=s
           make -j2 toolchain/install V=s
