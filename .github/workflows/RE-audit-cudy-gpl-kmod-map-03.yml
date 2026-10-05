@@ -1,0 +1,188 @@
+name: RE Cudy GPL and kmod map 03
+
+on:
+  push:
+    branches: [re-f9k1103-wr1200e-cudy-full-rootfs-port]
+    paths:
+      - '.github/workflows/RE-audit-cudy-gpl-kmod-map-03.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: re-cudy-gpl-kmod-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pip ripgrep file binutils xz-utils gzip tar
+          python3 -m pip install --user gdown
+
+      - name: Acquire official Cudy GPL source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/re-gpl03 RE-CUDY-GPL-KMOD-MAP-03
+          mkdir -p /tmp/re-gpl03 RE-CUDY-GPL-KMOD-MAP-03
+
+          # Official Cudy WR1200E GPL link published on the model download page.
+          FILE_ID='1sDSWjrw51HYsv-NPoADaDgPwrUE7EtgL'
+          python3 -m gdown "$FILE_ID" -O /tmp/re-gpl03/RE-GPL_cudy_openwrt_MT7628_MT7621_20250724.gz
+
+          sha256sum /tmp/re-gpl03/RE-GPL_cudy_openwrt_MT7628_MT7621_20250724.gz             > RE-CUDY-GPL-KMOD-MAP-03/RE-GPL-SHA256.txt
+          file /tmp/re-gpl03/RE-GPL_cudy_openwrt_MT7628_MT7621_20250724.gz             > RE-CUDY-GPL-KMOD-MAP-03/RE-GPL-FILE.txt
+
+          mkdir -p /tmp/re-gpl03/src
+          # Cudy labels this .gz; inspect inner format robustly.
+          if tar -tzf /tmp/re-gpl03/RE-GPL_cudy_openwrt_MT7628_MT7621_20250724.gz >/dev/null 2>&1; then
+            tar -xzf /tmp/re-gpl03/RE-GPL_cudy_openwrt_MT7628_MT7621_20250724.gz -C /tmp/re-gpl03/src
+          else
+            gzip -dc /tmp/re-gpl03/RE-GPL_cudy_openwrt_MT7628_MT7621_20250724.gz > /tmp/re-gpl03/inner
+            file /tmp/re-gpl03/inner > RE-CUDY-GPL-KMOD-MAP-03/RE-GPL-INNER-FILE.txt
+            if tar -tf /tmp/re-gpl03/inner >/dev/null 2>&1; then
+              tar -xf /tmp/re-gpl03/inner -C /tmp/re-gpl03/src
+            else
+              echo "ERROR: unsupported GPL inner archive" >&2
+              exit 1
+            fi
+          fi
+
+      - name: Search wan-detect and platform contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC=/tmp/re-gpl03/src
+          O=RE-CUDY-GPL-KMOD-MAP-03
+
+          find "$SRC" -type f | sed "s#^$SRC/##" | sort > "$O/RE-GPL-FILE-LIST.txt"
+
+          rg -n -i --hidden             'wan_detect|wandetect|/proc/net/wandetect|PORTNUM|gmac|setup_rtl8367_switch|mcore\.ko|hyfi-bridging|ipv6-pass-through'             "$SRC" > "$O/RE-GPL-WANDETECT-SEARCH.txt" || true
+
+          # Preserve all matching source files, but avoid massive binary blobs.
+          mkdir -p "$O/RE-GPL-WANDETECT-SOURCES"
+          python3 - <<'PY'
+          import pathlib,re,shutil
+          src=pathlib.Path('/tmp/re-gpl03/src')
+          out=pathlib.Path('RE-CUDY-GPL-KMOD-MAP-03/RE-GPL-WANDETECT-SOURCES')
+          needles=(b'wan_detect',b'wandetect',b'/proc/net/wandetect')
+          seen=set()
+          for p in src.rglob('*'):
+              if not p.is_file() or p.stat().st_size > 2_000_000: continue
+              try:b=p.read_bytes()
+              except:continue
+              if not any(n.lower() in b.lower() for n in needles): continue
+              rel=str(p.relative_to(src))
+              name='RE-'+rel.replace('/','__')
+              (out/name).write_bytes(b)
+              seen.add(rel)
+          pathlib.Path('RE-CUDY-GPL-KMOD-MAP-03/RE-GPL-WANDETECT-MATCHED-FILES.txt').write_text('\n'.join(sorted(seen))+'\n')
+          PY
+
+      - name: Map missing donor modules to LEDE KernelPackage definitions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          O=RE-CUDY-GPL-KMOD-MAP-03
+
+          # Retrieve the exact successful prior module-gap artifact.
+          gh run download 37369775593             --repo "${GITHUB_REPOSITORY}"             --name RE-WR1200E-KERNEL-ADAPTER-AUDIT-02             --dir /tmp/re-gpl03/ka02
+          mkdir -p /tmp/re-gpl03/ka02x
+          tar -xzf /tmp/re-gpl03/ka02/RE-WR1200E-KERNEL-ADAPTER-AUDIT-02.tar.gz -C /tmp/re-gpl03/ka02x
+          GAP=/tmp/re-gpl03/ka02x/RE-WR1200E-KERNEL-ADAPTER-AUDIT-02/RE-KMOD-CAPABILITY-GAP.csv
+
+          # Exact upstream LEDE 17.01.5 source for package definitions.
+          git clone --depth 1 --branch v17.01.5 https://github.com/lede-project/source.git /tmp/re-gpl03/lede >/dev/null 2>&1
+
+          python3 - "$GAP" /tmp/re-gpl03/lede "$O" <<'PY'
+          import csv,pathlib,re,sys
+          gap=pathlib.Path(sys.argv[1])
+          root=pathlib.Path(sys.argv[2])
+          out=pathlib.Path(sys.argv[3])
+          missing=[r['module'] for r in csv.DictReader(gap.open()) if r['status']=='TARGET_REBUILD_OR_FEATURE_ADAPTER_REQUIRED']
+
+          # Parse KernelPackage blocks and search FILES content for basename.ko.
+          defs=[]
+          for p in root.rglob('Makefile'):
+              try:s=p.read_text(errors='ignore')
+              except:continue
+              for m in re.finditer(r'define\s+KernelPackage/([^\n]+)\n(.*?)\nendef',s,re.S):
+                  name=m.group(1).strip()
+                  body=m.group(2)
+                  defs.append((name,str(p.relative_to(root)),body))
+
+          rows=[]
+          for mod in missing:
+              hits=[]
+              stem=mod[:-3] if mod.endswith('.ko') else mod
+              for name,path,body in defs:
+                  if mod in body or re.search(r'(?<![A-Za-z0-9_])'+re.escape(stem)+r'\.ko(?![A-Za-z0-9_])',body):
+                      hits.append((name,path))
+              vendor = mod in {
+                  'mt7628.ko','mcore.ko','wan_detect.ko','hyfi-bridging.ko',
+                  'igmp-snooping.ko','ipv6-pass-through.ko','ipt_TRIGGER.ko'
+              }
+              if hits:
+                  cls='UPSTREAM_LEDE_PACKAGE'
+              elif vendor:
+                  cls='CUDY_VENDOR_OR_PLATFORM_SPECIFIC'
+              else:
+                  cls='UNMAPPED_NEEDS_SOURCE_REVIEW'
+              rows.append({
+                  'module':mod,
+                  'classification':cls,
+                  'kernelpackages':';'.join(x[0] for x in hits),
+                  'makefiles':';'.join(sorted(set(x[1] for x in hits))),
+              })
+
+          with open(out/'RE-KMOD-TO-LEDE-PACKAGE-MAP.csv','w',newline='') as f:
+              w=csv.DictWriter(f,fieldnames=rows[0].keys());w.writeheader();w.writerows(rows)
+
+          package_names=sorted({pkg for r in rows if r['classification']=='UPSTREAM_LEDE_PACKAGE' for pkg in r['kernelpackages'].split(';') if pkg})
+          (out/'RE-TARGET-KMOD-PACKAGES.txt').write_text('\n'.join('CONFIG_PACKAGE_kmod-'+x+'=y' for x in package_names)+'\n')
+
+          counts={}
+          for r in rows: counts[r['classification']]=counts.get(r['classification'],0)+1
+          (out/'RE-KMOD-MAP-SUMMARY.txt').write_text('\n'.join([
+              f'MISSING_DONOR_MODULES={len(rows)}',
+              *[f'{k}={v}' for k,v in sorted(counts.items())],
+              f'UNIQUE_UPSTREAM_KERNELPACKAGES={len(package_names)}',
+          ])+'\n')
+          PY
+
+      - name: Build source-evidence summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          O=RE-CUDY-GPL-KMOD-MAP-03
+          {
+            echo 'RE-CUDY-GPL-KMOD-MAP-03'
+            echo 'SOURCE=Official Cudy WR1200E GPL 17.01'
+            echo 'GPL_FILE=GPL_cudy_openwrt_MT7628_MT7621_20250724.gz'
+            cat "$O/RE-KMOD-MAP-SUMMARY.txt"
+            echo "WANDETECT_MATCH_COUNT=$(wc -l < "$O/RE-GPL-WANDETECT-MATCHED-FILES.txt")"
+          } > "$O/RE-SUMMARY.txt"
+
+          (
+            cd "$O"
+            find . -type f -name 'RE-*' -print0 | sort -z | xargs -0 sha256sum > RE-SHA256SUMS.txt
+          )
+          tar -czf RE-CUDY-GPL-KMOD-MAP-03.tar.gz "$O"
+          sha256sum RE-CUDY-GPL-KMOD-MAP-03.tar.gz > RE-CUDY-GPL-KMOD-MAP-03.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-CUDY-GPL-KMOD-MAP-03
+          path: |
+            RE-CUDY-GPL-KMOD-MAP-03.tar.gz
+            RE-CUDY-GPL-KMOD-MAP-03.tar.gz.sha256
