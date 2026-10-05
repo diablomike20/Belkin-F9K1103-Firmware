@@ -79,6 +79,15 @@ jobs:
             echo "=== package names ==="
             grep '^Package: ' /tmp/root/usr/lib/opkg/status | grep -E 'uhttpd|lua' || true
           } > out-exact-wip03/RE-UHTTPD-LUA-SUPPORT.txt
+          {
+            echo "=== controller sysauth declarations ==="
+            grep -RsnE 'sysauth|sysauth_authenticator|entry\\(\\{\\}|entry\\(\\{"admin"' /tmp/root/usr/lib/lua/luci/controller 2>/dev/null || true
+          } > out-exact-wip03/RE-CONTROLLER-SYSAUTH.txt
+
+          cp -a /tmp/root/etc/init.d/uhttpd out-exact-wip03/RE-uhttpd-init 2>/dev/null || true
+          cp -a /tmp/root/etc/config/uhttpd out-exact-wip03/RE-uhttpd-config 2>/dev/null || true
+          grep '^Package: ' /tmp/root/usr/lib/opkg/status | grep -E 'uhttpd|luci|lua' > out-exact-wip03/RE-WEB-PACKAGES.txt || true
+
           sha256sum out-exact-wip03/* > out-exact-wip03/RE-SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
