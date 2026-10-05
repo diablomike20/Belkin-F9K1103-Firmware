@@ -1,0 +1,40 @@
+name: Inspect Cudy donor index routing
+
+on:
+  push:
+    branches:
+      - f9k1103-cudy-port-wip03
+    paths:
+      - '.github/workflows/inspect-cudy-donor-index-routing.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract donor routing files
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://www.cudy.com/cdn/shop/files/WR1200V2-R26-2.4.23-20251224-145945-flash.zip?v=10287497656812635253'
+          mkdir -p /tmp/donor out-donor-routing
+          curl -fL "$URL" -o /tmp/donor/donor.zip
+          unzip -q /tmp/donor/donor.zip -d /tmp/donor
+          BIN="$(find /tmp/donor -maxdepth 1 -type f -name '*-flash.bin' | head -n1)"
+          tail -c +2583296 "$BIN" > /tmp/donor/rootfs.squashfs
+          sudo unsquashfs -no-progress -d /tmp/donor/rootfs /tmp/donor/rootfs.squashfs >/dev/null
+          cp -a /tmp/donor/rootfs/usr/lib/lua/luci/view/indexer.htm out-donor-routing/RE-DONOR-view-indexer.htm
+          cp -a /tmp/donor/rootfs/usr/lib/lua/luci/view/themes/bootstrap/index.htm out-donor-routing/RE-DONOR-bootstrap-index.htm
+          test ! -e /tmp/donor/rootfs/usr/lib/lua/luci/view/themes/bootstrap/indexer.htm || cp -a /tmp/donor/rootfs/usr/lib/lua/luci/view/themes/bootstrap/indexer.htm out-donor-routing/RE-DONOR-bootstrap-indexer.htm
+          cp -a /tmp/donor/rootfs/usr/lib/lua/luci/dispatcher.lua out-donor-routing/RE-DONOR-dispatcher.lua
+          find /tmp/donor/rootfs/usr/lib/lua/luci/view/themes -maxdepth 2 -type f -name 'index*.htm' -printf '%P\n' | sort > out-donor-routing/RE-DONOR-theme-index-files.txt
+          grep -nE 'tpl.render\("indexer"|themes/.*/index|if c and c.index' /tmp/donor/rootfs/usr/lib/lua/luci/dispatcher.lua > out-donor-routing/RE-DONOR-dispatch-index-lines.txt || true
+          sha256sum out-donor-routing/* > out-donor-routing/RE-SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CUDY-DONOR-INDEX-ROUTING-EVIDENCE
+          path: out-donor-routing/
