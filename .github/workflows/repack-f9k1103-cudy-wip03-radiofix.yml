@@ -83,24 +83,24 @@ jobs:
           cp "$F" "$OUT/RE-95-f9k1103-cudy-runtime-IN-IMAGE"
           cp "$WORK/layout.txt" "$OUT/RE-BASE-LAYOUT.txt"
 
-          cat > "$OUT/RE-REPACK-INFO.txt" <<EOF
-Base successful WIP03 artifact:
-  artifact_id=11313772739
-  source_commit=8aca39b3a52e037ad530ee14f03cf6ef82ecdc7e
-
-Radio-fix source branch:
-  branch=f9k1103-cudy-port-wip03
-  source_commit=$GITHUB_SHA
-
-Physical TARGET-TEST-01 truth:
-  radio0 = PCI RT3091/3092 = 2.4 GHz = Cudy wlan00
-  radio1 = RT3883 WMAC      = 5 GHz   = Cudy wlan10
-
-Only rootfs payload was repacked. Kernel/uImage bytes and fwtool metadata
-record are inherited unchanged from the prior successful WIP03 artifact.
-
-This is a pre-flash TARGET-TEST candidate. Physical flash was not performed.
-EOF
+          {
+            echo "Base successful WIP03 artifact:"
+            echo "  artifact_id=11313772739"
+            echo "  source_commit=8aca39b3a52e037ad530ee14f03cf6ef82ecdc7e"
+            echo
+            echo "Radio-fix source branch:"
+            echo "  branch=f9k1103-cudy-port-wip03"
+            echo "  source_commit=$GITHUB_SHA"
+            echo
+            echo "Physical TARGET-TEST-01 truth:"
+            echo "  radio0 = PCI RT3091/3092 = 2.4 GHz = Cudy wlan00"
+            echo "  radio1 = RT3883 WMAC      = 5 GHz   = Cudy wlan10"
+            echo
+            echo "Only rootfs payload was repacked. Kernel/uImage bytes and fwtool metadata"
+            echo "record are inherited unchanged from the prior successful WIP03 artifact."
+            echo
+            echo "This is a pre-flash TARGET-TEST candidate. Physical flash was not performed."
+          } > "$OUT/RE-REPACK-INFO.txt"
 
           (
             cd "$OUT"
