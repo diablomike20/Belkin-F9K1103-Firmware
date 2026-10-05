@@ -47,7 +47,7 @@ bash "$STAGE_SCRIPT" "$DONOR_ROOT" "$WORK/target-root" "$WORK/stage"
 
 # Preserve engineering evidence outside the firmware payload. The Cudy rootfs
 # itself must not be polluted with RE checkpoint files.
-for meta in RE-TARGET-HARDWARE-PATHS.txt RE-CUDY-PINNED-SHA256.txt RE-STAGE-STATUS.txt RE-STAGE-SHA256.txt; do
+for meta in RE-TARGET-HARDWARE-PATHS.txt RE-CUDY-PINNED-SHA256.txt RE-TARGET-CREDENTIAL-SHA256.txt RE-STAGE-STATUS.txt RE-STAGE-SHA256.txt; do
     [ -f "$WORK/stage/$meta" ] && cp "$WORK/stage/$meta" "$OUT/$meta"
 done
 rm -f "$WORK/stage"/RE-*
@@ -99,6 +99,18 @@ python3 "$REPACK" validate "$IMAGE" "$OUT/RE-STATIC-VALIDATION.txt"
 python3 "$REPACK" extract-rootfs "$IMAGE" "$WORK/final-rootfs.squashfs"
 unsquashfs -no-progress -d "$WORK/final-root" "$WORK/final-rootfs.squashfs" >/dev/null
 
+# Firstboot access-safety adapter must survive the pack and donor password
+# logic itself must remain byte-identical.
+test -x "$WORK/final-root/etc/uci-defaults/10zz-f9k1103-unprovisioned-access"
+test -f "$WORK/final-root/etc/uci-defaults/11_fix_passwd"
+cmp "$DONOR_ROOT/etc/uci-defaults/11_fix_passwd" "$WORK/final-root/etc/uci-defaults/11_fix_passwd"
+
+# Recovery credential data must remain the exact boot-proven target value.
+test -f "$WORK/target-root/etc/shadow"
+test -f "$WORK/final-root/etc/shadow"
+cmp "$WORK/target-root/etc/shadow" "$WORK/final-root/etc/shadow"
+sha256sum "$WORK/final-root/etc/shadow" > "$OUT/RE-TARGET-SHADOW-SHA256.txt"
+
 # Post-pack immutable Cudy gate.
 : > "$OUT/RE-CUDY-PINNED-SHA256.txt"
 for rel in bin/busybox usr/bin/bdinfo usr/lib/libbdinfo.so; do
@@ -145,7 +157,10 @@ done
     echo 'CUDY_WAN_USERSPACE=PINNED_ORIGINAL'
     echo 'TARGET_WAN_KERNEL_ABI=re_wandetect_compat'
     echo 'WAN_AUTO_PROTOCOL_DETECT=NOT_YET_PARITY_VERIFIED'
-    echo 'BDINFO_BACKING=NOT_YET_PROVISIONED'
+    echo 'BDINFO_BACKING=UNPROVISIONED_NO_FAKE_CHECKUUID'
+    echo 'CUDY_11_FIX_PASSWD=BYTE_IDENTICAL'
+    echo 'ACCESS_SAFETY=TARGET_SHADOW_PRESERVED'
+    echo 'FIRSTBOOT_PASSWORD_GUARD=TARGET_TTYLOGIN_PRECONDITION'
     echo "TARGET_KERNEL_RELEASE=$KREL"
     echo "IMAGE_BYTES=$(stat -c %s "$IMAGE")"
     echo "ROOTFS_SQUASHFS_BYTES=$(stat -c %s "$WORK/rootfs-new.squashfs")"
