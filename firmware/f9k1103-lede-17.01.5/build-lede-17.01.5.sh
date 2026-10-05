@@ -132,23 +132,6 @@ for rel in (
 
     p.write_text(s, errors="surrogateescape")
 PY_AUTH_TEMPLATE
-from pathlib import Path
-for rel in (
-    "files/usr/lib/lua/luci/view/themes/bootstrap/sysauth.htm",
-    "files/usr/lib/lua/luci/view/themes/light/sysauth.htm",
-    "files/usr/lib/lua/luci/view/themes/dark/sysauth.htm",
-):
-    p=Path(rel)
-    if not p.exists() or p.is_symlink():
-        continue
-    s=p.read_text(errors="surrogateescape")
-    anchor='local broker = uci:get("cmagent", "mqtt", "broker")'
-    if anchor not in s:
-        raise SystemExit("Cudy sysauth template anchor missing: " + rel)
-    s=s.replace(anchor, anchor + "\nlocal bdinfo = true\nlocal flock = false", 1)
-    p.write_text(s, errors="surrogateescape")
-PY_AUTH_TEMPLATE
-
 # Explicitly exclude hardware/product-family features that do not belong on
 # the F9K1103.  WR1200 itself is non-cellular, but these framework residues
 # exist in the common Cudy tree.
