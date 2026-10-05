@@ -107,15 +107,13 @@ function authenticator.htmlauth(validator, accs, default, template)
 	local checkuser = (user == "admin") and "root" or user
 
 	if user and validator(checkuser, pass) then
-		return checkuser
+		return user
 	end
 
 	require("luci.i18n")
 	require("luci.template")
 	context.path = {}
-	-- Target-native uhttpd CGI compatibility: render the Cudy login page as
-	-- a normal 200 response.  The donor's vendor-patched uhttpd consumes the
-	-- 403 status internally, while stock LEDE may expose it in the body.
+	http.status(403, "Forbidden")
 	luci.template.render(template or "sysauth", {duser=default, fuser=user})
 
 	return false
@@ -350,16 +348,6 @@ function dispatch(request)
 		local sdat = (util.ubus("session", "get", { ubus_rpc_session = sess }) or { }).values
 		local user, token
 
-		-- Cudy presentation ACLs are keyed by "admin", while the actual LEDE
-		-- security principal is root.  Treat root as satisfying an admin-only
-		-- Cudy route without changing the stored session principal.
-		local function auth_allowed(list, u)
-			if util.contains(list, u) then
-				return true
-			end
-			return (u == "root") and util.contains(list, "admin")
-		end
-
 		if sdat then
 			user = sdat.user
 			token = sdat.token
@@ -371,11 +359,11 @@ function dispatch(request)
 			end
 		end
 
-		if not auth_allowed(accs, user) then
+		if not util.contains(accs, user) then
 			if authen then
 				local user, sess = authen(sys.user.checkpasswd, accs, def, track.sysauth_template)
 				local token
-				if not user or not auth_allowed(accs, user) then
+				if not user or not util.contains(accs, user) then
 					return
 				else
 					if not sess then
@@ -399,11 +387,9 @@ function dispatch(request)
 
 						ctx.authsession = sess
 						ctx.authtoken = token
-						ctx.authuser = (user == "root") and "admin" or user
+						ctx.authuser = user
 
-						-- Continue dispatching the same requested page after creating the
-						-- authenticated session.  Avoid the donor 302 dependency here;
-						-- stock LEDE uhttpd does not share the donor vendor patchset.
+						http.redirect(build_url(unpack(ctx.requestpath)))
 					end
 				end
 			else
@@ -413,7 +399,7 @@ function dispatch(request)
 		else
 			ctx.authsession = sess
 			ctx.authtoken = token
-			ctx.authuser = (user == "root") and "admin" or user
+			ctx.authuser = user
 		end
 	end
 
