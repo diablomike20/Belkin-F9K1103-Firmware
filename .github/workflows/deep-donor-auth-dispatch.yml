@@ -38,7 +38,7 @@ jobs:
           curl -fL "$LUAD_URL" -o /tmp/donor-auth/luad.tgz
           echo '5e297699463f04e19fda3a867fb9d36d444f848ee0ddf560b6ae383568ec0053  /tmp/donor-auth/luad.tgz' | sha256sum -c -
           tar -xzf /tmp/donor-auth/luad.tgz -C /tmp/donor-auth
-          LUAD="$(find /tmp/donor-auth -type f -name luad -perm -111 | head -n1)"
+          LUAD="$(find /tmp/donor-auth -maxdepth 2 -type f -name luad -perm -111 | head -n1)"
           test -n "$LUAD"
 
           sudo cp "$ROOT/usr/lib/lua/luci/dispatcher.lua" "$OUT/RE-DONOR-dispatcher.lua"
