@@ -25,7 +25,7 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf /tmp/re08 RE-RESIDUAL-ADAPTER-QUEUE-08
-          mkdir -p /tmp/re08/donor /tmp/re08/target RE-RESIDUAL-ADAPTER-QUEUE-08
+          mkdir -p /tmp/re08 RE-RESIDUAL-ADAPTER-QUEUE-08
 
           URL='https://www.cudy.com/cdn/shop/files/WR1200E-R62-2.4.25-20260114-184136-flash.zip?v=12982462962593522136'
           SHA='2e9a8dafc930a2070d45f706ec5d362428475044dcd791232f86eee7b9f4ef21'
@@ -39,8 +39,8 @@ jobs:
           if i<0: raise SystemExit('donor squashfs missing')
           pathlib.Path(sys.argv[2]).write_bytes(b[i:])
           PY
-          sudo unsquashfs -no-progress -d /tmp/re08/donor /tmp/re08/donor.sqfs >/dev/null
-          sudo chown -R "$(id -u):$(id -g)" /tmp/re08/donor
+          sudo unsquashfs -no-progress -d /tmp/re08/donor-root /tmp/re08/donor.sqfs >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" /tmp/re08/donor-root
 
           gh run download 37248840659             --repo "${GITHUB_REPOSITORY}"             --name F9K1103-CUDY-WIP03-RADIOFIX-FAST-REPACK-V2             --dir /tmp/re08/target-artifact
           TBIN="$(find /tmp/re08/target-artifact -type f -name '*sysupgrade.bin' | head -n1)"
@@ -54,15 +54,15 @@ jobs:
           n=struct.unpack_from('<Q',b,i+40)[0]
           pathlib.Path(sys.argv[2]).write_bytes(b[i:i+n])
           PY
-          sudo unsquashfs -no-progress -d /tmp/re08/target /tmp/re08/target.sqfs >/dev/null
-          sudo chown -R "$(id -u):$(id -g)" /tmp/re08/target
+          sudo unsquashfs -no-progress -d /tmp/re08/target-root /tmp/re08/target.sqfs >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" /tmp/re08/target-root
 
       - name: Diff exact residual queue
         shell: bash
         run: |
           set -euo pipefail
-          D=/tmp/re08/donor
-          T=/tmp/re08/target
+          D=/tmp/re08/donor-root-root
+          T=/tmp/re08/target-root-root
           O=RE-RESIDUAL-ADAPTER-QUEUE-08
           cat > /tmp/re08/paths <<'EOF'
           etc/hotplug.d/gmac/08-wan-detect
