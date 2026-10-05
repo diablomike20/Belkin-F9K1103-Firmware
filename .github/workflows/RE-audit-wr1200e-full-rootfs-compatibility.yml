@@ -6,11 +6,18 @@ on:
     paths:
       - '.github/workflows/RE-audit-wr1200e-full-rootfs-compatibility.yml'
       - 'firmware/f9k1103-lede-17.01.5/RE-CUDY-FIRST-FULL-ROOTFS-POLICY.md'
+      - 'firmware/f9k1103-lede-17.01.5/RE-prepare-wr1200e-cudy-first-stage.sh'
+      - 'firmware/f9k1103-lede-17.01.5/RE-WR1200E-HARDWARE-BOUNDARY-01.md'
+      - 'firmware/f9k1103-lede-17.01.5/cudy-port/RE-*'
   workflow_dispatch:
 
 permissions:
   contents: read
   actions: read
+
+concurrency:
+  group: re-wr1200e-fullroot-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   compatibility:
