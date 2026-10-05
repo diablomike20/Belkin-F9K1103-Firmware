@@ -72,7 +72,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          RID='37380320962'
+          RID="$(gh run list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --workflow "RE wan_detect build and wireless gate 06" \
+            --branch "re-f9k1103-wr1200e-cudy-full-rootfs-port" \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[0].databaseId')"
+          test -n "$RID"
+          echo "Selected latest wandetect run: $RID"
           gh run watch "$RID" --repo "${GITHUB_REPOSITORY}" --exit-status
           gh run view "$RID" --repo "${GITHUB_REPOSITORY}" --json conclusion,name,headBranch,headSha > /tmp/re10/wandetect-run.json
           python3 - <<'PY'
