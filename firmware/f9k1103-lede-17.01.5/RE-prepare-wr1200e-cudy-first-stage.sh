@@ -74,9 +74,14 @@ done
 mkdir -p "$OUT_ROOT/usr/lib/lua"
 cp -a "$MCORE_SRC" "$OUT_ROOT/usr/lib/lua/mcore.lua"
 
+# Install target-only firstboot access guard immediately before donor
+# 11_fix_passwd. The donor script itself remains byte-identical.
+mkdir -p "$OUT_ROOT/etc/uci-defaults"
+cp -a "$PREACCESS_SRC" "$OUT_ROOT/etc/uci-defaults/10zz-f9k1103-unprovisioned-access"
+chmod 0755 "$OUT_ROOT/etc/uci-defaults/10zz-f9k1103-unprovisioned-access"
+
 # Install the thin physical adapter after all stock Cudy defaults. Runtime name
 # intentionally sorts after donor 99_fixwan / 99_oem.
-mkdir -p "$OUT_ROOT/etc/uci-defaults"
 cp -a "$ADAPTER_SRC" "$OUT_ROOT/etc/uci-defaults/99zz-f9k1103-cudy-hardware"
 chmod 0755 "$OUT_ROOT/etc/uci-defaults/99zz-f9k1103-cudy-hardware"
 
