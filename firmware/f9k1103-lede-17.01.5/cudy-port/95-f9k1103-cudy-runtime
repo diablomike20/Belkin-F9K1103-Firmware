@@ -12,6 +12,15 @@ uci set system.board.target='F9K1103'
 uci set system.board.model='Belkin F9K1103 Version 1.0'
 uci set system.board.rom='F9K1103'
 
+# Cudy's donor /bin/config_generate records each logical network role in
+# network.<iface>.mode.  The stock LEDE generator on F9K1103 omits this field,
+# while the imported Cudy description.lua uses network.wan.mode='wan' to
+# resolve WAN UI visibility.  Preserve the target-native WAN interface and add
+# only the missing Cudy role metadata.
+if uci -q get network.wan >/dev/null 2>&1; then
+    uci set network.wan.mode='wan'
+fi
+
 # Cudy-looking login, LEDE-native authentication:
 # the web form submits user "admin"; patched LEDE dispatcher verifies the
 # password against the existing root account and keeps session identity admin.
