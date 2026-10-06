@@ -17,12 +17,14 @@ OUT_ROOT="${3:?output rootfs required}"
 
 SELF_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 ADAPTER_SRC="$SELF_DIR/cudy-port/RE-99zz-f9k1103-cudy-hardware"
+WIRELESS_PRE_SRC="$SELF_DIR/cudy-port/RE-29zz-f9k1103-cudy-wireless-contract"
 PREACCESS_SRC="$SELF_DIR/cudy-port/RE-10zz-f9k1103-unprovisioned-access"
 MCORE_SRC="$SELF_DIR/cudy-port/mcore.lua"
 
 test -d "$DONOR_ROOT"
 test -d "$TARGET_ROOT"
 test -f "$ADAPTER_SRC"
+test -f "$WIRELESS_PRE_SRC"
 test -f "$PREACCESS_SRC"
 test -f "$MCORE_SRC"
 
@@ -79,6 +81,11 @@ cp -a "$MCORE_SRC" "$OUT_ROOT/usr/lib/lua/mcore.lua"
 mkdir -p "$OUT_ROOT/etc/uci-defaults"
 cp -a "$PREACCESS_SRC" "$OUT_ROOT/etc/uci-defaults/10zz-f9k1103-unprovisioned-access"
 chmod 0755 "$OUT_ROOT/etc/uci-defaults/10zz-f9k1103-unprovisioned-access"
+
+# Recreate the exact Cudy logical wireless section contract before stock
+# 30_wlan runs.  Physical driver/radio ownership remains target mac80211.
+cp -a "$WIRELESS_PRE_SRC" "$OUT_ROOT/etc/uci-defaults/29zz-f9k1103-cudy-wireless-contract"
+chmod 0755 "$OUT_ROOT/etc/uci-defaults/29zz-f9k1103-cudy-wireless-contract"
 
 # Install the thin physical adapter after all stock Cudy defaults. Runtime name
 # intentionally sorts after donor 99_fixwan / 99_oem.
@@ -148,6 +155,7 @@ BDINFO=CUDY_PINNED_ORIGINAL_UNPROVISIONED
 BDINFO_CHECKUUID=NOT_FAKED
 ACCESS_SAFETY=TARGET_SHADOW_PRESERVED
 FIRSTBOOT_PASSWORD_GUARD=TARGET_TTYLOGIN_PRECONDITION
+WIRELESS_LOGICAL_CONTRACT=CUDY_WR1200E_PRE_30_WLAN
 BUSYBOX_POLICY=CUDY_PINNED_NEVER_REPLACE
 EOF
 
