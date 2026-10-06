@@ -72,6 +72,18 @@ if uci -q get wireless.wlan10 >/dev/null 2>&1; then
     uci set wireless.wlan10.ifname='wlan10'
 fi
 
+# Stock WR1200E 99_oem creates hidden service VIFs with MediaTek proprietary
+# physical names ra2/rai2. Preserve the Cudy sections and semantics, translate
+# only their physical interface names for target mac80211.
+if uci -q get wireless.wlan03 >/dev/null 2>&1; then
+    uci set wireless.wlan03.device='radio0'
+    uci set wireless.wlan03.ifname='wlan03'
+fi
+if uci -q get wireless.wlan13 >/dev/null 2>&1; then
+    uci set wireless.wlan13.device='radio1'
+    uci set wireless.wlan13.ifname='wlan13'
+fi
+
 # Exact WR1200E R62/2.4.25 donor evidence:
 # - no stock /etc/config/wireless exists in squashfs;
 # - donor radio detect templates do NOT disable radio0/radio1;
