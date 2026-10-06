@@ -28,6 +28,9 @@ uci set system.board.wan_port='4'
 # placement is owned by the target board.d/RTL8367R layer; this value is only
 # the Cudy UI/runtime port-count metadata.
 uci set system.board.ports='5'
+# Cudy WAN/switch scripts also consume the legacy singular metadata key
+# "portnum".  Keep both fields aligned with the physical F9K1103 topology.
+uci set system.board.portnum='5'
 
 # Physical target enumeration was verified on the real F9K1103:
 #   radio0 = PCI RT3091/3092, 2.4 GHz
