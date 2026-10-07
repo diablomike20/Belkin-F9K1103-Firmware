@@ -208,6 +208,15 @@ jobs:
 
           sha256sum "$IMG" > "$O/RE-CANDIDATE-12-IMAGE-SHA256.txt"
 
+          (
+            cd "$O"
+            find . -maxdepth 1 -type f -name 'RE-*' ! -name 'RE-SHA256SUMS.txt' -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              > RE-SHA256SUMS.txt
+            sha256sum -c RE-SHA256SUMS.txt
+          )
+
           tar -czf RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz "$O"
           sha256sum RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz \
             > RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz.sha256
