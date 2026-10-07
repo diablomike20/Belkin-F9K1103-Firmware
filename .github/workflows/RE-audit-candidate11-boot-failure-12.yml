@@ -190,7 +190,7 @@ jobs:
             for rootname in DONOR TARGET STAGE; do
               case "$rootname" in DONOR) R="$D";; TARGET) R="$T";; STAGE) R="$S";; esac
               echo "===== $rootname ====="
-              for p in sbin/init sbin/procd sbin/ubusd sbin/logd sbin/netifd sbin/kmodloader bin/busybox; do
+              for p in sbin/init sbin/procd sbin/ubusd sbin/logd sbin/netifd sbin/kmodloader sbin/swconfig usr/bin/jshn bin/busybox; do
                 f="$R/$p"
                 [ -e "$f" ] || [ -L "$f" ] || continue
                 echo "--- $p"
