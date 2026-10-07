@@ -218,7 +218,14 @@ done
 cp "$WORK/base/layout.txt" "$OUT/RE-BASE-LAYOUT.txt"
 (
     cd "$OUT"
-    find . -maxdepth 1 -type f -name 'RE-*' -print0 | sort -z | xargs -0 sha256sum > RE-SHA256SUMS.txt
+    find . -maxdepth 1 -type f -name 'RE-*' ! -name 'RE-SHA256SUMS.txt' -print0 \
+        | sort -z \
+        | xargs -0 sha256sum \
+        > RE-SHA256SUMS.txt
+)
+(
+    cd "$OUT"
+    sha256sum -c RE-SHA256SUMS.txt
 )
 
 echo "CUDY-FIRST Candidate-12 built: $IMAGE"
