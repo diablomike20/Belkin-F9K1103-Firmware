@@ -241,10 +241,10 @@ jobs:
 
           {
             echo '===== DONOR direct 192.168.10.x ====='
-            grep -Rna '192\\.168\\.10\\.' "$D" 2>/dev/null || true
+            grep -Rna '192\\.168\\.10\\.' "$D/bin" "$D/etc" "$D/lib" "$D/sbin" "$D/usr" "$D/www" 2>/dev/null || true
             echo
             echo '===== DONOR direct 192.168.1.x ====='
-            grep -Rna '192\\.168\\.1\\.' "$D" 2>/dev/null || true
+            grep -Rna '192\\.168\\.1\\.' "$D/bin" "$D/etc" "$D/lib" "$D/sbin" "$D/usr" "$D/www" 2>/dev/null || true
           } > "$O/RE-LAN-IP-FOCUSED.txt"
 
           echo 'LAN_IP_AUDIT=PASS' > "$O/RE-LAN-IP-AUDIT-STATUS.txt"
