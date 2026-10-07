@@ -1,0 +1,99 @@
+name: RE WR1200E network firstboot audit 14
+
+on:
+  push:
+    branches: [re-wr1200e-lan-ip-audit-13]
+    paths:
+      - '.github/workflows/RE-wr1200e-network-firstboot-audit-14.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: re-wr1200e-lan-ip-audit-13
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools unzip
+
+      - name: Extract exact donor firstboot network files
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/renet14 RE-WR1200E-NETWORK-FIRSTBOOT-AUDIT-14
+          mkdir -p /tmp/renet14/unzip RE-WR1200E-NETWORK-FIRSTBOOT-AUDIT-14
+
+          URL='https://www.cudy.com/cdn/shop/files/WR1200E-R62-2.4.25-20260114-184136-flash.zip?v=12982462962593522136'
+          ZIP_SHA='2e9a8dafc930a2070d45f706ec5d362428475044dcd791232f86eee7b9f4ef21'
+          BIN_SHA='086055b0227910f9ddabbb13bfa6b06a3850105bd46a3572b76116bf5a3043fa'
+
+          curl -fL --retry 3 "$URL" -o /tmp/renet14/donor.zip
+          echo "$ZIP_SHA  /tmp/renet14/donor.zip" | sha256sum -c -
+          unzip -q /tmp/renet14/donor.zip -d /tmp/renet14/unzip
+          BIN="$(find /tmp/renet14/unzip -type f -name '*.bin' | head -n1)"
+          echo "$BIN_SHA  $BIN" | sha256sum -c -
+
+          python3 - "$BIN" <<'PY'
+          import pathlib,sys
+          b=pathlib.Path(sys.argv[1]).read_bytes()
+          i=b.find(b'hsqs')
+          if i < 0: raise SystemExit('squashfs missing')
+          pathlib.Path('/tmp/renet14/rootfs.sqfs').write_bytes(b[i:])
+          PY
+          sudo unsquashfs -no-progress -d /tmp/renet14/root /tmp/renet14/rootfs.sqfs >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" /tmp/renet14/root
+
+          R=/tmp/renet14/root
+          O=RE-WR1200E-NETWORK-FIRSTBOOT-AUDIT-14
+          for p in             bin/config_generate             etc/uci-defaults/01_network             etc/uci-defaults/30_wlan             etc/uci-defaults/40_luci-wireless             etc/uci-defaults/98-board             etc/uci-defaults/99_fixwan             etc/uci-defaults/99_oem             lib/functions/uci-defaults.sh             lib/functions/system.sh             lib/ramips.sh             etc/init.d/network
+          do
+            out="$O/$(echo "$p" | tr '/' '_').txt"
+            {
+              echo "PATH=$p"
+              if [ -e "$R/$p" ] || [ -L "$R/$p" ]; then
+                ls -l "$R/$p"
+                sha256sum "$R/$p" 2>/dev/null || true
+                echo '----- CONTENT -----'
+                cat "$R/$p" 2>/dev/null || true
+              else
+                echo ABSENT
+              fi
+            } > "$out"
+          done
+
+          {
+            echo '===== FIRSTBOOT ORDER ====='
+            find "$R/etc/uci-defaults" -maxdepth 1 -type f -printf '%f\n' | sort
+            echo
+            echo '===== NETWORK/SWITCH/IFNAME WRITES ====='
+            grep -RnaE 'network\.(lan|wan)|def_ifname|ifname|switch|vlan|wan_port|portnum|system\.board'               "$R/etc/uci-defaults" "$R/bin/config_generate" 2>/dev/null || true
+          } > "$O/RE-FIRSTBOOT-NETWORK-WRITES.txt"
+
+          {
+            echo 'AUDIT=PASS'
+            echo "DONOR_ZIP_SHA256=$ZIP_SHA"
+            echo "DONOR_BIN_SHA256=$BIN_SHA"
+            echo -n 'HAS_99_FIXWAN='
+            test -f "$R/etc/uci-defaults/99_fixwan" && echo YES || echo NO
+            echo -n 'FIXWAN_WRITES_LAN_IFNAME='
+            grep -q 'network.lan.ifname' "$R/etc/uci-defaults/99_fixwan" && echo YES || echo NO
+            echo -n 'FIXWAN_READS_DEF_IFNAME='
+            grep -q 'network.lan.def_ifname' "$R/etc/uci-defaults/99_fixwan" && echo YES || echo NO
+          } > "$O/RE-SUMMARY.txt"
+
+          tar -czf RE-WR1200E-NETWORK-FIRSTBOOT-AUDIT-14.tar.gz "$O"
+          sha256sum RE-WR1200E-NETWORK-FIRSTBOOT-AUDIT-14.tar.gz > RE-WR1200E-NETWORK-FIRSTBOOT-AUDIT-14.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-WR1200E-NETWORK-FIRSTBOOT-AUDIT-14
+          path: |
+            RE-WR1200E-NETWORK-FIRSTBOOT-AUDIT-14.tar.gz
+            RE-WR1200E-NETWORK-FIRSTBOOT-AUDIT-14.tar.gz.sha256
