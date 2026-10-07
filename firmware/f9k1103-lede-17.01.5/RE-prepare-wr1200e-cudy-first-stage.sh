@@ -68,6 +68,7 @@ done
 for rel in \
   sbin/kmodloader \
   sbin/swconfig \
+  sbin/wifi \
   etc/init.d/network
 do
   copy_target_path "$rel"
