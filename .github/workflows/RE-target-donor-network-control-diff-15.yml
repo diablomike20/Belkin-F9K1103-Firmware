@@ -126,12 +126,12 @@ jobs:
             readelf -d "$D/sbin/netifd" 2>/dev/null | grep NEEDED || true
           } > "$O/RE-NETIFD-ELF.txt"
 
-          cat > "$O/RE-SUMMARY.txt" <<'EOF'
-AUDIT=PASS
-PURPOSE=EXACT_TARGET_DONOR_NETWORK_CONTROL_DIFF
-TARGET=WIP03_RADIOFIX_BOOT_VERIFIED
-DONOR=WR1200E_R62_2.4.25
-EOF
+          {
+            echo 'AUDIT=PASS'
+            echo 'PURPOSE=EXACT_TARGET_DONOR_NETWORK_CONTROL_DIFF'
+            echo 'TARGET=WIP03_RADIOFIX_BOOT_VERIFIED'
+            echo 'DONOR=WR1200E_R62_2.4.25'
+          } > "$O/RE-SUMMARY.txt"
 
           tar -czf RE-TARGET-DONOR-NETWORK-CONTROL-DIFF-15.tar.gz "$O"
           sha256sum RE-TARGET-DONOR-NETWORK-CONTROL-DIFF-15.tar.gz > RE-TARGET-DONOR-NETWORK-CONTROL-DIFF-15.tar.gz.sha256
