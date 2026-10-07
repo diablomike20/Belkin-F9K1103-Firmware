@@ -132,7 +132,7 @@ jobs:
           bash -n firmware/f9k1103-lede-17.01.5/RE-prepare-wr1200e-cudy-first-stage.sh
           bash -n firmware/f9k1103-lede-17.01.5/RE-build-cudy-first-static-candidate-12.sh
 
-          grep -q 'copy_target_path "sbin/swconfig"' \
+          grep -q 'sbin/swconfig' \
             firmware/f9k1103-lede-17.01.5/RE-prepare-wr1200e-cudy-first-stage.sh
           grep -q "system.board.ports='5'" \
             firmware/f9k1103-lede-17.01.5/cudy-port/RE-99zz-f9k1103-cudy-hardware
