@@ -170,7 +170,8 @@ jobs:
             echo -e 'path\tdonor_sha_or_link\ttarget_sha_or_link\tstage_sha_or_link\tstage_origin'
             while IFS= read -r p; do
               getv() {
-                local root="$1"\n                local x="$root/$p"
+                local root="$1"
+                local x="$root/$p"
                 if [ -L "$x" ]; then printf 'LINK:%s' "$(readlink "$x")"
                 elif [ -f "$x" ]; then sha256sum "$x" | awk '{print $1}'
                 elif [ -d "$x" ]; then printf 'DIR'
