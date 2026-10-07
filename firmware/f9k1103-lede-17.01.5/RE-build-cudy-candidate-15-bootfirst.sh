@@ -38,8 +38,18 @@ python3 "$REPACK" split "$BASE_IMG" "$WORK/base"
 sudo unsquashfs -no-progress -d "$WORK/target-root" "$WORK/base/rootfs.squashfs" >/dev/null
 sudo chown -R "$(id -u):$(id -g)" "$WORK/target-root"
 
-# Stage starts as the exact physically boot-proven WIP03 rootfs.
-cp -a "$WORK/target-root" "$WORK/stage"
+# Stage starts from the exact physically boot-proven WIP03 rootfs.
+# Exclude runtime pseudo-filesystems/device nodes; they are populated at boot
+# and are not part of the persistent SquashFS payload.
+mkdir -p "$WORK/stage"
+rsync -aH --numeric-ids \
+    --exclude='/dev/***' \
+    --exclude='/proc/***' \
+    --exclude='/sys/***' \
+    --exclude='/tmp/***' \
+    --exclude='/overlay/***' \
+    --exclude='/rom/***' \
+    "$WORK/target-root/" "$WORK/stage/"
 
 # ---------------------------------------------------------------------------
 # 1. Exact Cudy 2.4.25 web/LuCI application layer.
