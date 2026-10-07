@@ -78,13 +78,12 @@ jobs:
           echo '1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560  '"$BASE" | sha256sum -c -
           cp "$BASE" /tmp/re12/base-sysupgrade.bin
 
-      - name: Acquire latest successful wandetect compatibility module
+      - name: Acquire successful wandetect compatibility module
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-
           RID="$(gh run list \
             --repo "${GITHUB_REPOSITORY}" \
             --workflow "RE wan_detect build and wireless gate 06" \
@@ -93,9 +92,7 @@ jobs:
             --limit 1 \
             --json databaseId \
             --jq '.[0].databaseId')"
-
           test -n "$RID"
-          echo "Selected successful wandetect run: $RID"
 
           gh run view "$RID" \
             --repo "${GITHUB_REPOSITORY}" \
@@ -125,30 +122,24 @@ jobs:
           grep -q 'MIPS' /tmp/re12/wandetect-file.txt
           cp "$KO" /tmp/re12/re_wandetect_compat.ko
 
-      - name: Static lint before Candidate-12 build
+      - name: Static lint before Candidate-12
         shell: bash
         run: |
           set -euo pipefail
-
           sh -n firmware/f9k1103-lede-17.01.5/cudy-port/RE-10zz-f9k1103-unprovisioned-access
           sh -n firmware/f9k1103-lede-17.01.5/cudy-port/RE-29zz-f9k1103-cudy-wireless-contract
           sh -n firmware/f9k1103-lede-17.01.5/cudy-port/RE-99zz-f9k1103-cudy-hardware
           bash -n firmware/f9k1103-lede-17.01.5/RE-prepare-wr1200e-cudy-first-stage.sh
           bash -n firmware/f9k1103-lede-17.01.5/RE-build-cudy-first-static-candidate-12.sh
 
-          grep -q "BUSYBOX_POLICY=CUDY_PINNED_NEVER_REPLACE" \
+          grep -q 'copy_target_path "sbin/swconfig"' \
             firmware/f9k1103-lede-17.01.5/RE-prepare-wr1200e-cudy-first-stage.sh
-          grep -q "BDINFO_CHECKUUID=NOT_FAKED" \
-            firmware/f9k1103-lede-17.01.5/RE-prepare-wr1200e-cudy-first-stage.sh
-
           grep -q "system.board.ports='5'" \
             firmware/f9k1103-lede-17.01.5/cudy-port/RE-99zz-f9k1103-cudy-hardware
           grep -q 'uci -q delete system.board.portnum' \
             firmware/f9k1103-lede-17.01.5/cudy-port/RE-99zz-f9k1103-cudy-hardware
           ! grep -q "uci set system.board.portnum=" \
             firmware/f9k1103-lede-17.01.5/cudy-port/RE-99zz-f9k1103-cudy-hardware
-          grep -q 'copy_target_path "sbin/swconfig"' \
-            firmware/f9k1103-lede-17.01.5/RE-prepare-wr1200e-cudy-first-stage.sh
 
       - name: Build Candidate-12
         shell: bash
@@ -160,7 +151,7 @@ jobs:
             /tmp/re12/re_wandetect_compat.ko \
             RE-CUDY-FIRST-STATIC-CANDIDATE-12
 
-      - name: Target swconfig on final donor ABI gate
+      - name: QEMU loader gate for target swconfig on donor ABI
         shell: bash
         run: |
           set -euo pipefail
@@ -169,31 +160,33 @@ jobs:
           test -x "$ROOT/sbin/swconfig"
 
           set +e
-          qemu-mipsel-static -L "$ROOT" "$ROOT/sbin/swconfig"             > "$O/RE-TARGET-SWCONFIG-QEMU-LOADER.txt" 2>&1
+          qemu-mipsel-static -L "$ROOT" "$ROOT/sbin/swconfig" \
+            > "$O/RE-TARGET-SWCONFIG-QEMU-LOADER.txt" 2>&1
           RC=$?
           set -e
 
           cat "$O/RE-TARGET-SWCONFIG-QEMU-LOADER.txt"
           echo "QEMU_RC=$RC" >> "$O/RE-TARGET-SWCONFIG-QEMU-LOADER.txt"
 
-          if grep -Eqi 'Error loading shared library|symbol not found|Invalid ELF|Could not open .*/ld-musl'               "$O/RE-TARGET-SWCONFIG-QEMU-LOADER.txt"; then
-            echo 'ERROR: boot-proven target swconfig is not compatible with final Cudy donor library ABI' >&2
+          if grep -Eqi 'Error loading shared library|symbol not found|Invalid ELF|Could not open .*/ld-musl' \
+              "$O/RE-TARGET-SWCONFIG-QEMU-LOADER.txt"; then
+            echo 'ERROR: target swconfig loader/ABI failure on final donor library set' >&2
             exit 1
           fi
 
-          echo 'TARGET_SWCONFIG_DONOR_ABI_LOADER=PASS'             >> "$O/RE-TARGET-SWCONFIG-QEMU-LOADER.txt"
+          echo 'TARGET_SWCONFIG_DONOR_ABI_LOADER=PASS' \
+            >> "$O/RE-TARGET-SWCONFIG-QEMU-LOADER.txt"
 
       - name: Final Candidate-12 static gate
         shell: bash
         run: |
           set -euo pipefail
-
           O=RE-CUDY-FIRST-STATIC-CANDIDATE-12
           IMG="$O/RE-F9K1103-CUDY-FIRST-WR1200E-CANDIDATE-12-sysupgrade.bin"
 
           test -s "$IMG"
           grep -q '^VALIDATION=PASS$' "$O/RE-STATIC-VALIDATION.txt"
-          grep -q '^STATUS=STATIC_CANDIDATE_11$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^STATUS=STATIC_CANDIDATE_12$' "$O/RE-CANDIDATE-STATUS.txt"
           grep -q '^FLASH_AUTHORIZATION=NO$' "$O/RE-CANDIDATE-STATUS.txt"
 
           grep -q '^CUDY_BUSYBOX=PINNED_NEVER_REPLACE$' "$O/RE-CANDIDATE-STATUS.txt"
@@ -203,86 +196,10 @@ jobs:
 
           grep -q '^WIRELESS_LOGICAL_CONTRACT=CUDY_WR1200E_PRE_30_WLAN$' "$O/RE-CANDIDATE-STATUS.txt"
           grep -q '^CUDY_WIRELESS_SECTIONS=wlan00,wlan01,wlan02,wlan10,wlan11,wlan12$' "$O/RE-CANDIDATE-STATUS.txt"
-          grep -q '^TARGET_PORT_METADATA=ports5_portnum_unset_wanport4
-
-          grep -q '^ACCESS_SAFETY=TARGET_SHADOW_PRESERVED$' "$O/RE-CANDIDATE-STATUS.txt"
-          grep -q '^CUDY_11_FIX_PASSWD=BYTE_IDENTICAL$' "$O/RE-CANDIDATE-STATUS.txt"
-          grep -q '^BDINFO_BACKING=UNPROVISIONED_NO_FAKE_CHECKUUID$' "$O/RE-CANDIDATE-STATUS.txt"
-          grep -q '^WAN_AUTO_PROTOCOL_DETECT=NOT_YET_PARITY_VERIFIED$' "$O/RE-CANDIDATE-STATUS.txt"
-
-          sha256sum "$IMG" > "$O/RE-CANDIDATE-12-IMAGE-SHA256.txt"
-
-          tar -czf RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz "$O"
-          sha256sum RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz \
-            > RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz.sha256
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: RE-CUDY-FIRST-STATIC-CANDIDATE-12
-          path: |
-            RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz
-            RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz.sha256
- "$O/RE-CANDIDATE-STATUS.txt"
-          grep -q '^TARGET_SWITCHCTL=BOOT_PROVEN_F9K1103_SWCONFIG
-
-          grep -q '^ACCESS_SAFETY=TARGET_SHADOW_PRESERVED$' "$O/RE-CANDIDATE-STATUS.txt"
-          grep -q '^CUDY_11_FIX_PASSWD=BYTE_IDENTICAL$' "$O/RE-CANDIDATE-STATUS.txt"
-          grep -q '^BDINFO_BACKING=UNPROVISIONED_NO_FAKE_CHECKUUID$' "$O/RE-CANDIDATE-STATUS.txt"
-          grep -q '^WAN_AUTO_PROTOCOL_DETECT=NOT_YET_PARITY_VERIFIED$' "$O/RE-CANDIDATE-STATUS.txt"
-
-          sha256sum "$IMG" > "$O/RE-CANDIDATE-12-IMAGE-SHA256.txt"
-
-          tar -czf RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz "$O"
-          sha256sum RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz \
-            > RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz.sha256
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: RE-CUDY-FIRST-STATIC-CANDIDATE-12
-          path: |
-            RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz
-            RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz.sha256
- "$O/RE-CANDIDATE-STATUS.txt"
-          grep -q '^BOOTFIX_BASIS=CANDIDATE11_TARGET_BOOT_FAIL
-
-          grep -q '^ACCESS_SAFETY=TARGET_SHADOW_PRESERVED$' "$O/RE-CANDIDATE-STATUS.txt"
-          grep -q '^CUDY_11_FIX_PASSWD=BYTE_IDENTICAL$' "$O/RE-CANDIDATE-STATUS.txt"
-          grep -q '^BDINFO_BACKING=UNPROVISIONED_NO_FAKE_CHECKUUID$' "$O/RE-CANDIDATE-STATUS.txt"
-          grep -q '^WAN_AUTO_PROTOCOL_DETECT=NOT_YET_PARITY_VERIFIED$' "$O/RE-CANDIDATE-STATUS.txt"
-
-          sha256sum "$IMG" > "$O/RE-CANDIDATE-12-IMAGE-SHA256.txt"
-
-          tar -czf RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz "$O"
-          sha256sum RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz \
-            > RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz.sha256
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: RE-CUDY-FIRST-STATIC-CANDIDATE-12
-          path: |
-            RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz
-            RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz.sha256
- "$O/RE-CANDIDATE-STATUS.txt"
-          grep -q '^TARGET_SWCONFIG_DONOR_ABI_LOADER=PASS
-
-          grep -q '^ACCESS_SAFETY=TARGET_SHADOW_PRESERVED$' "$O/RE-CANDIDATE-STATUS.txt"
-          grep -q '^CUDY_11_FIX_PASSWD=BYTE_IDENTICAL$' "$O/RE-CANDIDATE-STATUS.txt"
-          grep -q '^BDINFO_BACKING=UNPROVISIONED_NO_FAKE_CHECKUUID$' "$O/RE-CANDIDATE-STATUS.txt"
-          grep -q '^WAN_AUTO_PROTOCOL_DETECT=NOT_YET_PARITY_VERIFIED$' "$O/RE-CANDIDATE-STATUS.txt"
-
-          sha256sum "$IMG" > "$O/RE-CANDIDATE-12-IMAGE-SHA256.txt"
-
-          tar -czf RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz "$O"
-          sha256sum RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz \
-            > RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz.sha256
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: RE-CUDY-FIRST-STATIC-CANDIDATE-12
-          path: |
-            RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz
-            RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz.sha256
- "$O/RE-TARGET-SWCONFIG-QEMU-LOADER.txt"
+          grep -q '^TARGET_PORT_METADATA=ports5_portnum_unset_wanport4$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^TARGET_SWITCHCTL=BOOT_PROVEN_F9K1103_SWCONFIG$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^BOOTFIX_BASIS=CANDIDATE11_TARGET_BOOT_FAIL$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^TARGET_SWCONFIG_DONOR_ABI_LOADER=PASS$' "$O/RE-TARGET-SWCONFIG-QEMU-LOADER.txt"
 
           grep -q '^ACCESS_SAFETY=TARGET_SHADOW_PRESERVED$' "$O/RE-CANDIDATE-STATUS.txt"
           grep -q '^CUDY_11_FIX_PASSWD=BYTE_IDENTICAL$' "$O/RE-CANDIDATE-STATUS.txt"
