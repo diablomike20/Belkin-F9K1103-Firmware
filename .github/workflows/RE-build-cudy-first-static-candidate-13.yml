@@ -214,7 +214,53 @@ jobs:
 
           test -s "$IMG"
           grep -q '^VALIDATION=PASS$' "$O/RE-STATIC-VALIDATION.txt"
-          grep -q '^STATUS=STATIC_CANDIDATE_12$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^STATUS=STATIC_CANDIDATE_13 "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^FLASH_AUTHORIZATION=NO$' "$O/RE-CANDIDATE-STATUS.txt"
+
+          grep -q '^CUDY_BUSYBOX=PINNED_NEVER_REPLACE$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^CUDY_BDINFO=PINNED_ORIGINAL$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^CUDY_LIBBDINFO=PINNED_ORIGINAL$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^CUDY_WAN_USERSPACE=PINNED_ORIGINAL$' "$O/RE-CANDIDATE-STATUS.txt"
+
+          grep -q '^WIRELESS_LOGICAL_CONTRACT=CUDY_WR1200E_PRE_30_WLAN$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^CUDY_WIRELESS_SECTIONS=wlan00,wlan01,wlan02,wlan10,wlan11,wlan12$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^TARGET_PORT_METADATA=ports5_portnum_unset_wanport4$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^TARGET_SWITCHCTL=BOOT_PROVEN_F9K1103_SWCONFIG$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^TARGET_KMODLOADER=BOOT_PROVEN_F9K1103$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^TARGET_NETWORK_INIT=BOOT_PROVEN_F9K1103$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^TARGET_MAC80211_USERSPACE=BOOT_PROVEN_F9K1103$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^TARGET_LAN_IP=192.168.10.2$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^DONOR_LAN_DEFAULT=192.168.10.1$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^BOOTFIX_BASIS=CANDIDATE11_12_NO_LINK_NO_WIFI$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^TARGET_HARDWARE_USERSPACE_DONOR_ABI_LOADER=PASS$' "$O/RE-TARGET-HARDWARE-QEMU-LOADER.txt"
+
+          grep -q '^ACCESS_SAFETY=TARGET_SHADOW_PRESERVED$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^CUDY_11_FIX_PASSWD=BYTE_IDENTICAL$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^BDINFO_BACKING=UNPROVISIONED_NO_FAKE_CHECKUUID$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^WAN_AUTO_PROTOCOL_DETECT=NOT_YET_PARITY_VERIFIED$' "$O/RE-CANDIDATE-STATUS.txt"
+
+          sha256sum "$IMG" > "$O/RE-CANDIDATE-13-IMAGE-SHA256.txt"
+
+          (
+            cd "$O"
+            find . -maxdepth 1 -type f -name 'RE-*' ! -name 'RE-SHA256SUMS.txt' -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              > RE-SHA256SUMS.txt
+            sha256sum -c RE-SHA256SUMS.txt
+          )
+
+          tar -czf RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz "$O"
+          sha256sum RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz \
+            > RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-CUDY-FIRST-STATIC-CANDIDATE-13
+          path: |
+            RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz
+            RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz.sha256
+ "$O/RE-CANDIDATE-STATUS.txt"
           grep -q '^FLASH_AUTHORIZATION=NO$' "$O/RE-CANDIDATE-STATUS.txt"
 
           grep -q '^CUDY_BUSYBOX=PINNED_NEVER_REPLACE$' "$O/RE-CANDIDATE-STATUS.txt"
