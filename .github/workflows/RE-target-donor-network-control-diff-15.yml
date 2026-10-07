@@ -1,0 +1,144 @@
+name: RE target donor network control diff 15
+
+on:
+  push:
+    branches: [re-wr1200e-lan-ip-audit-13]
+    paths:
+      - '.github/workflows/RE-target-donor-network-control-diff-15.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: re-wr1200e-lan-ip-audit-13
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools unzip gh
+
+      - name: Extract exact donor and boot-proven target
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/renet15 RE-TARGET-DONOR-NETWORK-CONTROL-DIFF-15
+          mkdir -p /tmp/renet15/donor/unzip /tmp/renet15/target/artifact RE-TARGET-DONOR-NETWORK-CONTROL-DIFF-15
+
+          URL='https://www.cudy.com/cdn/shop/files/WR1200E-R62-2.4.25-20260114-184136-flash.zip?v=12982462962593522136'
+          curl -fL --retry 3 "$URL" -o /tmp/renet15/donor/donor.zip
+          echo '2e9a8dafc930a2070d45f706ec5d362428475044dcd791232f86eee7b9f4ef21  /tmp/renet15/donor/donor.zip' | sha256sum -c -
+          unzip -q /tmp/renet15/donor/donor.zip -d /tmp/renet15/donor/unzip
+          DBIN="$(find /tmp/renet15/donor/unzip -type f -name '*.bin' | head -n1)"
+          echo '086055b0227910f9ddabbb13bfa6b06a3850105bd46a3572b76116bf5a3043fa  '"$DBIN" | sha256sum -c -
+
+          python3 - "$DBIN" <<'PY'
+          import pathlib,sys
+          b=pathlib.Path(sys.argv[1]).read_bytes()
+          i=b.find(b'hsqs')
+          if i<0: raise SystemExit('donor squashfs missing')
+          pathlib.Path('/tmp/renet15/donor/rootfs.sqfs').write_bytes(b[i:])
+          PY
+          sudo unsquashfs -no-progress -d /tmp/renet15/donor/root /tmp/renet15/donor/rootfs.sqfs >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" /tmp/renet15/donor/root
+
+          gh run download 37248840659             --repo "${GITHUB_REPOSITORY}"             --name F9K1103-CUDY-WIP03-RADIOFIX-FAST-REPACK-V2             --dir /tmp/renet15/target/artifact
+          TBIN="$(find /tmp/renet15/target/artifact -type f -name '*sysupgrade.bin' | head -n1)"
+          echo '1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560  '"$TBIN" | sha256sum -c -
+          python3 - "$TBIN" <<'PY'
+          import pathlib,sys
+          b=pathlib.Path(sys.argv[1]).read_bytes()
+          i=b.find(b'hsqs')
+          if i<0: raise SystemExit('target squashfs missing')
+          pathlib.Path('/tmp/renet15/target/rootfs.sqfs').write_bytes(b[i:])
+          PY
+          sudo unsquashfs -no-progress -d /tmp/renet15/target/root /tmp/renet15/target/rootfs.sqfs >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" /tmp/renet15/target/root
+
+      - name: Exact control-plane diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          D=/tmp/renet15/donor/root
+          T=/tmp/renet15/target/root
+          O=RE-TARGET-DONOR-NETWORK-CONTROL-DIFF-15
+
+          paths='
+          sbin/wifi
+          sbin/netifd
+          sbin/ifup
+          sbin/ubusd
+          sbin/procd
+          usr/bin/jsonfilter
+          usr/share/libubox/jshn.sh
+          lib/functions.sh
+          lib/functions/network.sh
+          lib/functions/uci-defaults.sh
+          lib/netifd/netifd-proto.sh
+          lib/netifd/wireless
+          lib/wifi
+          etc/init.d/network
+          etc/board.d/02_network
+          '
+
+          : > "$O/RE-PATH-ORIGIN.tsv"
+          for p in $paths; do
+            ds=ABSENT; ts=ABSENT
+            [ ! -f "$D/$p" ] || ds="$(sha256sum "$D/$p" | awk '{print $1}')"
+            [ ! -f "$T/$p" ] || ts="$(sha256sum "$T/$p" | awk '{print $1}')"
+            [ ! -L "$D/$p" ] || ds="LINK:$(readlink "$D/$p")"
+            [ ! -L "$T/$p" ] || ts="LINK:$(readlink "$T/$p")"
+            [ ! -d "$D/$p" ] || ds=DIR
+            [ ! -d "$T/$p" ] || ts=DIR
+            printf '%s\t%s\t%s\n' "$p" "$ds" "$ts" >> "$O/RE-PATH-ORIGIN.tsv"
+
+            safe="$(echo "$p" | tr '/' '_')"
+            if [ -f "$D/$p" ] || [ -f "$T/$p" ]; then
+              diff -u "$T/$p" "$D/$p" > "$O/RE-DIFF-$safe.txt" || true
+            elif [ -d "$D/$p" ] || [ -d "$T/$p" ]; then
+              diff -ruN "$T/$p" "$D/$p" > "$O/RE-DIFF-$safe.txt" || true
+            fi
+          done
+
+          {
+            echo '===== TARGET /sbin/wifi ====='
+            cat "$T/sbin/wifi"
+            echo
+            echo '===== DONOR /sbin/wifi ====='
+            cat "$D/sbin/wifi"
+          } > "$O/RE-WIFI-SCRIPT-EXACT.txt"
+
+          {
+            echo '===== TARGET netifd ELF ====='
+            file "$T/sbin/netifd"
+            readelf -d "$T/sbin/netifd" 2>/dev/null | grep NEEDED || true
+            echo
+            echo '===== DONOR netifd ELF ====='
+            file "$D/sbin/netifd"
+            readelf -d "$D/sbin/netifd" 2>/dev/null | grep NEEDED || true
+          } > "$O/RE-NETIFD-ELF.txt"
+
+          cat > "$O/RE-SUMMARY.txt" <<'EOF'
+AUDIT=PASS
+PURPOSE=EXACT_TARGET_DONOR_NETWORK_CONTROL_DIFF
+TARGET=WIP03_RADIOFIX_BOOT_VERIFIED
+DONOR=WR1200E_R62_2.4.25
+EOF
+
+          tar -czf RE-TARGET-DONOR-NETWORK-CONTROL-DIFF-15.tar.gz "$O"
+          sha256sum RE-TARGET-DONOR-NETWORK-CONTROL-DIFF-15.tar.gz > RE-TARGET-DONOR-NETWORK-CONTROL-DIFF-15.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-TARGET-DONOR-NETWORK-CONTROL-DIFF-15
+          path: |
+            RE-TARGET-DONOR-NETWORK-CONTROL-DIFF-15.tar.gz
+            RE-TARGET-DONOR-NETWORK-CONTROL-DIFF-15.tar.gz.sha256
