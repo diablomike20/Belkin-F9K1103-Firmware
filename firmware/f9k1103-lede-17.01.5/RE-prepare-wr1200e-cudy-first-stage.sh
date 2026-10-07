@@ -61,13 +61,31 @@ do
   copy_target_path "$rel"
 done
 
-# Candidate-11 TARGET_BOOT_FAIL forensic:
-# the kernel/uImage prefix is byte-identical to the boot-proven WIP03 image,
-# while Candidate-11 used the WR1200E swconfig binary against the physical
-# F9K1103 RTL8367R switch driver.  Switch control is a target hardware
-# boundary.  Preserve the exact boot-proven target swconfig while leaving
-# donor netifd/init/procd and the rest of Cudy userspace untouched.
-copy_target_path "sbin/swconfig"
+# Physical kernel/module and switch control must remain a coherent target
+# stack. Candidate-11/12 kept target modules but donor kmodloader, and kept the
+# target RTL8367R topology but donor network init (which calls Cudy/MTK
+# /sbin/vlancfg). Restore the exact boot-proven target control points.
+for rel in \
+  sbin/kmodloader \
+  sbin/swconfig \
+  etc/init.d/network
+do
+  copy_target_path "$rel"
+done
+
+# WR1200E's proprietary MTK Wi-Fi userspace has no mac80211 netifd handler,
+# no wpad/hostapd and no iw binary. F9K1103 is mac80211/rt2x00, so these are
+# physical radio userspace boundaries and must come from the boot-proven target.
+for rel in \
+  lib/netifd/hostapd.sh \
+  lib/netifd/wireless \
+  usr/sbin/iw \
+  usr/sbin/wpad \
+  usr/sbin/hostapd \
+  usr/sbin/wpa_supplicant
+do
+  copy_target_path "$rel"
+done
 
 # The initial physical interface topology must come from the boot-verified
 # F9K1103 baseline. Cudy uci-defaults are preserved in OUT_ROOT and will
