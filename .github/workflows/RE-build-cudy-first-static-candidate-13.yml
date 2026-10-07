@@ -1,0 +1,477 @@
+name: RE Cudy-first static candidate 13
+
+on:
+  push:
+    branches: [re-f9k1103-cudy-first-bootfix-12]
+    paths:
+      - '.github/workflows/RE-build-cudy-first-static-candidate-13.yml'
+      - 'firmware/f9k1103-lede-17.01.5/RE-build-cudy-first-static-candidate-13.sh'
+      - 'firmware/f9k1103-lede-17.01.5/RE-prepare-wr1200e-cudy-first-stage.sh'
+      - 'firmware/f9k1103-lede-17.01.5/cudy-port/RE-*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: re-cudy-first-candidate13-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: re-f9k1103-cudy-first-bootfix-12
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools unzip rsync file binutils qemu-user-static
+
+      - name: Acquire exact WR1200E donor
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/re13 RE-CUDY-FIRST-STATIC-CANDIDATE-13
+          mkdir -p /tmp/re13 RE-CUDY-FIRST-STATIC-CANDIDATE-13
+
+          URL='https://www.cudy.com/cdn/shop/files/WR1200E-R62-2.4.25-20260114-184136-flash.zip?v=12982462962593522136'
+          ZIP_SHA='2e9a8dafc930a2070d45f706ec5d362428475044dcd791232f86eee7b9f4ef21'
+          BIN_SHA='086055b0227910f9ddabbb13bfa6b06a3850105bd46a3572b76116bf5a3043fa'
+
+          curl -fL --retry 3 "$URL" -o /tmp/re13/donor.zip
+          echo "$ZIP_SHA  /tmp/re13/donor.zip" | sha256sum -c -
+          unzip -q /tmp/re13/donor.zip -d /tmp/re13/donor-unzip
+
+          BIN="$(find /tmp/re13/donor-unzip -type f -name '*.bin' | head -n1)"
+          test -n "$BIN"
+          echo "$BIN_SHA  $BIN" | sha256sum -c -
+
+          python3 - "$BIN" <<'PY'
+          import pathlib,sys
+          b=pathlib.Path(sys.argv[1]).read_bytes()
+          i=b.find(b'hsqs')
+          if i < 0:
+              raise SystemExit('donor squashfs missing')
+          pathlib.Path('/tmp/re13/donor.sqfs').write_bytes(b[i:])
+          PY
+
+          sudo unsquashfs -no-progress -d /tmp/re13/donor-root /tmp/re13/donor.sqfs >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" /tmp/re13/donor-root
+
+      - name: Acquire boot-proven F9K1103 baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run download 37248840659 \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name F9K1103-CUDY-WIP03-RADIOFIX-FAST-REPACK-V2 \
+            --dir /tmp/re13/target-artifact
+
+          BASE="$(find /tmp/re13/target-artifact -type f -name '*sysupgrade.bin' | head -n1)"
+          test -n "$BASE"
+          echo '1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560  '"$BASE" | sha256sum -c -
+          cp "$BASE" /tmp/re13/base-sysupgrade.bin
+
+      - name: Acquire successful wandetect compatibility module
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RID="$(gh run list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --workflow "RE wan_detect build and wireless gate 06" \
+            --branch "re-f9k1103-wr1200e-cudy-full-rootfs-port" \
+            --status success \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[0].databaseId')"
+          test -n "$RID"
+
+          gh run view "$RID" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --json conclusion,name,headBranch,headSha \
+            > /tmp/re13/wandetect-run.json
+
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/re13/wandetect-run.json'))
+          assert x.get('conclusion') == 'success', x
+          assert x.get('name') == 'RE wan_detect build and wireless gate 06', x
+          assert x.get('headBranch') == 're-f9k1103-wr1200e-cudy-full-rootfs-port', x
+          PY
+
+          gh run download "$RID" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name RE-WANDETECT-WIRELESS-GATE-06 \
+            --dir /tmp/re13/wandetect-artifact
+
+          ARCHIVE="$(find /tmp/re13/wandetect-artifact -type f -name '*.tar.gz' | head -n1)"
+          test -n "$ARCHIVE"
+          tar -xzf "$ARCHIVE" -C /tmp/re13
+
+          KO="$(find /tmp/re13 -type f -name 'RE-re_wandetect_compat.ko' | head -n1)"
+          test -n "$KO"
+          file "$KO" | tee /tmp/re13/wandetect-file.txt
+          grep -q 'MIPS' /tmp/re13/wandetect-file.txt
+          cp "$KO" /tmp/re13/re_wandetect_compat.ko
+
+      - name: Static lint before Candidate-13
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh -n firmware/f9k1103-lede-17.01.5/cudy-port/RE-10zz-f9k1103-unprovisioned-access
+          sh -n firmware/f9k1103-lede-17.01.5/cudy-port/RE-29zz-f9k1103-cudy-wireless-contract
+          sh -n firmware/f9k1103-lede-17.01.5/cudy-port/RE-99zz-f9k1103-cudy-hardware
+          bash -n firmware/f9k1103-lede-17.01.5/RE-prepare-wr1200e-cudy-first-stage.sh
+          bash -n firmware/f9k1103-lede-17.01.5/RE-build-cudy-first-static-candidate-13.sh
+
+          grep -q 'sbin/kmodloader' \
+            firmware/f9k1103-lede-17.01.5/RE-prepare-wr1200e-cudy-first-stage.sh
+          grep -q 'sbin/swconfig' \
+            firmware/f9k1103-lede-17.01.5/RE-prepare-wr1200e-cudy-first-stage.sh
+          grep -q 'etc/init.d/network' \
+            firmware/f9k1103-lede-17.01.5/RE-prepare-wr1200e-cudy-first-stage.sh
+          grep -q 'lib/netifd/wireless' \
+            firmware/f9k1103-lede-17.01.5/RE-prepare-wr1200e-cudy-first-stage.sh
+          grep -q 'usr/sbin/wpad' \
+            firmware/f9k1103-lede-17.01.5/RE-prepare-wr1200e-cudy-first-stage.sh
+          grep -q 'usr/sbin/iw' \
+            firmware/f9k1103-lede-17.01.5/RE-prepare-wr1200e-cudy-first-stage.sh
+
+          grep -q "system.board.ports='5'" \
+            firmware/f9k1103-lede-17.01.5/cudy-port/RE-99zz-f9k1103-cudy-hardware
+          grep -q 'uci -q delete system.board.portnum' \
+            firmware/f9k1103-lede-17.01.5/cudy-port/RE-99zz-f9k1103-cudy-hardware
+          ! grep -q "uci set system.board.portnum=" \
+            firmware/f9k1103-lede-17.01.5/cudy-port/RE-99zz-f9k1103-cudy-hardware
+          grep -q "network.lan.def_ipaddr='192.168.10.2'" \
+            firmware/f9k1103-lede-17.01.5/cudy-port/RE-99zz-f9k1103-cudy-hardware
+          grep -q "network.lan.ipaddr='192.168.10.2'" \
+            firmware/f9k1103-lede-17.01.5/cudy-port/RE-99zz-f9k1103-cudy-hardware
+
+      - name: Build Candidate-13
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash firmware/f9k1103-lede-17.01.5/RE-build-cudy-first-static-candidate-13.sh \
+            /tmp/re13/donor-root \
+            /tmp/re13/base-sysupgrade.bin \
+            /tmp/re13/re_wandetect_compat.ko \
+            RE-CUDY-FIRST-STATIC-CANDIDATE-13
+
+      - name: QEMU loader gates for F9K1103 hardware userspace on Cudy ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=/tmp/re-cudy-first-candidate-13/final-root
+          O=RE-CUDY-FIRST-STATIC-CANDIDATE-13
+
+          : > "$O/RE-TARGET-HARDWARE-QEMU-LOADER.txt"
+
+          run_loader_gate() {
+            rel="$1"
+            shift
+            test -e "$ROOT/$rel" || { echo "ERROR: missing $rel" >&2; exit 1; }
+            echo "===== $rel =====" | tee -a "$O/RE-TARGET-HARDWARE-QEMU-LOADER.txt"
+
+            set +e
+            timeout 4 qemu-mipsel-static -L "$ROOT" "$ROOT/$rel" "$@" \
+              >> "$O/RE-TARGET-HARDWARE-QEMU-LOADER.txt" 2>&1
+            rc=$?
+            set -e
+            echo "QEMU_RC=$rc" >> "$O/RE-TARGET-HARDWARE-QEMU-LOADER.txt"
+
+            if tail -n 80 "$O/RE-TARGET-HARDWARE-QEMU-LOADER.txt" | \
+              grep -Eqi 'Error loading shared library|symbol not found|Invalid ELF|Could not open .*/ld-|No such file or directory.*lib[^/ ]*\.so'; then
+              echo "ERROR: loader/ABI failure: $rel" >&2
+              exit 1
+            fi
+          }
+
+          run_loader_gate sbin/swconfig
+          run_loader_gate sbin/kmodloader
+          run_loader_gate usr/sbin/iw --version
+          run_loader_gate usr/sbin/wpad -v
+
+          grep -q 'swconfig list' "$O/RE-TARGET-HARDWARE-QEMU-LOADER.txt"
+          echo 'TARGET_HARDWARE_USERSPACE_DONOR_ABI_LOADER=PASS' \
+            >> "$O/RE-TARGET-HARDWARE-QEMU-LOADER.txt"
+
+      - name: Final Candidate-13 static gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          O=RE-CUDY-FIRST-STATIC-CANDIDATE-13
+          IMG="$O/RE-F9K1103-CUDY-FIRST-WR1200E-CANDIDATE-13-sysupgrade.bin"
+
+          test -s "$IMG"
+          grep -q '^VALIDATION=PASS$' "$O/RE-STATIC-VALIDATION.txt"
+          grep -q '^STATUS=STATIC_CANDIDATE_12$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^FLASH_AUTHORIZATION=NO$' "$O/RE-CANDIDATE-STATUS.txt"
+
+          grep -q '^CUDY_BUSYBOX=PINNED_NEVER_REPLACE$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^CUDY_BDINFO=PINNED_ORIGINAL$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^CUDY_LIBBDINFO=PINNED_ORIGINAL$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^CUDY_WAN_USERSPACE=PINNED_ORIGINAL$' "$O/RE-CANDIDATE-STATUS.txt"
+
+          grep -q '^WIRELESS_LOGICAL_CONTRACT=CUDY_WR1200E_PRE_30_WLAN$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^CUDY_WIRELESS_SECTIONS=wlan00,wlan01,wlan02,wlan10,wlan11,wlan12$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^TARGET_PORT_METADATA=ports5_portnum_unset_wanport4$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^TARGET_SWITCHCTL=BOOT_PROVEN_F9K1103_SWCONFIG
+          grep -q '^ACCESS_SAFETY=TARGET_SHADOW_PRESERVED$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^CUDY_11_FIX_PASSWD=BYTE_IDENTICAL$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^BDINFO_BACKING=UNPROVISIONED_NO_FAKE_CHECKUUID$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^WAN_AUTO_PROTOCOL_DETECT=NOT_YET_PARITY_VERIFIED$' "$O/RE-CANDIDATE-STATUS.txt"
+
+          sha256sum "$IMG" > "$O/RE-CANDIDATE-13-IMAGE-SHA256.txt"
+
+          (
+            cd "$O"
+            find . -maxdepth 1 -type f -name 'RE-*' ! -name 'RE-SHA256SUMS.txt' -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              > RE-SHA256SUMS.txt
+            sha256sum -c RE-SHA256SUMS.txt
+          )
+
+          tar -czf RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz "$O"
+          sha256sum RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz \
+            > RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-CUDY-FIRST-STATIC-CANDIDATE-13
+          path: |
+            RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz
+            RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz.sha256
+ "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^TARGET_KMODLOADER=BOOT_PROVEN_F9K1103
+          grep -q '^ACCESS_SAFETY=TARGET_SHADOW_PRESERVED$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^CUDY_11_FIX_PASSWD=BYTE_IDENTICAL$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^BDINFO_BACKING=UNPROVISIONED_NO_FAKE_CHECKUUID$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^WAN_AUTO_PROTOCOL_DETECT=NOT_YET_PARITY_VERIFIED$' "$O/RE-CANDIDATE-STATUS.txt"
+
+          sha256sum "$IMG" > "$O/RE-CANDIDATE-13-IMAGE-SHA256.txt"
+
+          (
+            cd "$O"
+            find . -maxdepth 1 -type f -name 'RE-*' ! -name 'RE-SHA256SUMS.txt' -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              > RE-SHA256SUMS.txt
+            sha256sum -c RE-SHA256SUMS.txt
+          )
+
+          tar -czf RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz "$O"
+          sha256sum RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz \
+            > RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-CUDY-FIRST-STATIC-CANDIDATE-13
+          path: |
+            RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz
+            RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz.sha256
+ "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^TARGET_NETWORK_INIT=BOOT_PROVEN_F9K1103
+          grep -q '^ACCESS_SAFETY=TARGET_SHADOW_PRESERVED$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^CUDY_11_FIX_PASSWD=BYTE_IDENTICAL$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^BDINFO_BACKING=UNPROVISIONED_NO_FAKE_CHECKUUID$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^WAN_AUTO_PROTOCOL_DETECT=NOT_YET_PARITY_VERIFIED$' "$O/RE-CANDIDATE-STATUS.txt"
+
+          sha256sum "$IMG" > "$O/RE-CANDIDATE-13-IMAGE-SHA256.txt"
+
+          (
+            cd "$O"
+            find . -maxdepth 1 -type f -name 'RE-*' ! -name 'RE-SHA256SUMS.txt' -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              > RE-SHA256SUMS.txt
+            sha256sum -c RE-SHA256SUMS.txt
+          )
+
+          tar -czf RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz "$O"
+          sha256sum RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz \
+            > RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-CUDY-FIRST-STATIC-CANDIDATE-13
+          path: |
+            RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz
+            RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz.sha256
+ "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^TARGET_MAC80211_USERSPACE=BOOT_PROVEN_F9K1103
+          grep -q '^ACCESS_SAFETY=TARGET_SHADOW_PRESERVED$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^CUDY_11_FIX_PASSWD=BYTE_IDENTICAL$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^BDINFO_BACKING=UNPROVISIONED_NO_FAKE_CHECKUUID$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^WAN_AUTO_PROTOCOL_DETECT=NOT_YET_PARITY_VERIFIED$' "$O/RE-CANDIDATE-STATUS.txt"
+
+          sha256sum "$IMG" > "$O/RE-CANDIDATE-13-IMAGE-SHA256.txt"
+
+          (
+            cd "$O"
+            find . -maxdepth 1 -type f -name 'RE-*' ! -name 'RE-SHA256SUMS.txt' -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              > RE-SHA256SUMS.txt
+            sha256sum -c RE-SHA256SUMS.txt
+          )
+
+          tar -czf RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz "$O"
+          sha256sum RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz \
+            > RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-CUDY-FIRST-STATIC-CANDIDATE-13
+          path: |
+            RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz
+            RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz.sha256
+ "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^TARGET_LAN_IP=192.168.10.2
+          grep -q '^ACCESS_SAFETY=TARGET_SHADOW_PRESERVED$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^CUDY_11_FIX_PASSWD=BYTE_IDENTICAL$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^BDINFO_BACKING=UNPROVISIONED_NO_FAKE_CHECKUUID$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^WAN_AUTO_PROTOCOL_DETECT=NOT_YET_PARITY_VERIFIED$' "$O/RE-CANDIDATE-STATUS.txt"
+
+          sha256sum "$IMG" > "$O/RE-CANDIDATE-13-IMAGE-SHA256.txt"
+
+          (
+            cd "$O"
+            find . -maxdepth 1 -type f -name 'RE-*' ! -name 'RE-SHA256SUMS.txt' -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              > RE-SHA256SUMS.txt
+            sha256sum -c RE-SHA256SUMS.txt
+          )
+
+          tar -czf RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz "$O"
+          sha256sum RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz \
+            > RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-CUDY-FIRST-STATIC-CANDIDATE-13
+          path: |
+            RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz
+            RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz.sha256
+ "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^DONOR_LAN_DEFAULT=192.168.10.1
+          grep -q '^ACCESS_SAFETY=TARGET_SHADOW_PRESERVED$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^CUDY_11_FIX_PASSWD=BYTE_IDENTICAL$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^BDINFO_BACKING=UNPROVISIONED_NO_FAKE_CHECKUUID$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^WAN_AUTO_PROTOCOL_DETECT=NOT_YET_PARITY_VERIFIED$' "$O/RE-CANDIDATE-STATUS.txt"
+
+          sha256sum "$IMG" > "$O/RE-CANDIDATE-13-IMAGE-SHA256.txt"
+
+          (
+            cd "$O"
+            find . -maxdepth 1 -type f -name 'RE-*' ! -name 'RE-SHA256SUMS.txt' -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              > RE-SHA256SUMS.txt
+            sha256sum -c RE-SHA256SUMS.txt
+          )
+
+          tar -czf RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz "$O"
+          sha256sum RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz \
+            > RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-CUDY-FIRST-STATIC-CANDIDATE-13
+          path: |
+            RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz
+            RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz.sha256
+ "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^BOOTFIX_BASIS=CANDIDATE11_12_NO_LINK_NO_WIFI
+          grep -q '^ACCESS_SAFETY=TARGET_SHADOW_PRESERVED$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^CUDY_11_FIX_PASSWD=BYTE_IDENTICAL$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^BDINFO_BACKING=UNPROVISIONED_NO_FAKE_CHECKUUID$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^WAN_AUTO_PROTOCOL_DETECT=NOT_YET_PARITY_VERIFIED$' "$O/RE-CANDIDATE-STATUS.txt"
+
+          sha256sum "$IMG" > "$O/RE-CANDIDATE-13-IMAGE-SHA256.txt"
+
+          (
+            cd "$O"
+            find . -maxdepth 1 -type f -name 'RE-*' ! -name 'RE-SHA256SUMS.txt' -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              > RE-SHA256SUMS.txt
+            sha256sum -c RE-SHA256SUMS.txt
+          )
+
+          tar -czf RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz "$O"
+          sha256sum RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz \
+            > RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-CUDY-FIRST-STATIC-CANDIDATE-13
+          path: |
+            RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz
+            RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz.sha256
+ "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^TARGET_HARDWARE_USERSPACE_DONOR_ABI_LOADER=PASS
+          grep -q '^ACCESS_SAFETY=TARGET_SHADOW_PRESERVED$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^CUDY_11_FIX_PASSWD=BYTE_IDENTICAL$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^BDINFO_BACKING=UNPROVISIONED_NO_FAKE_CHECKUUID$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^WAN_AUTO_PROTOCOL_DETECT=NOT_YET_PARITY_VERIFIED$' "$O/RE-CANDIDATE-STATUS.txt"
+
+          sha256sum "$IMG" > "$O/RE-CANDIDATE-13-IMAGE-SHA256.txt"
+
+          (
+            cd "$O"
+            find . -maxdepth 1 -type f -name 'RE-*' ! -name 'RE-SHA256SUMS.txt' -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              > RE-SHA256SUMS.txt
+            sha256sum -c RE-SHA256SUMS.txt
+          )
+
+          tar -czf RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz "$O"
+          sha256sum RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz \
+            > RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-CUDY-FIRST-STATIC-CANDIDATE-13
+          path: |
+            RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz
+            RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz.sha256
+ "$O/RE-TARGET-HARDWARE-QEMU-LOADER.txt"
+
+          grep -q '^ACCESS_SAFETY=TARGET_SHADOW_PRESERVED$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^CUDY_11_FIX_PASSWD=BYTE_IDENTICAL$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^BDINFO_BACKING=UNPROVISIONED_NO_FAKE_CHECKUUID$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^WAN_AUTO_PROTOCOL_DETECT=NOT_YET_PARITY_VERIFIED$' "$O/RE-CANDIDATE-STATUS.txt"
+
+          sha256sum "$IMG" > "$O/RE-CANDIDATE-13-IMAGE-SHA256.txt"
+
+          (
+            cd "$O"
+            find . -maxdepth 1 -type f -name 'RE-*' ! -name 'RE-SHA256SUMS.txt' -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              > RE-SHA256SUMS.txt
+            sha256sum -c RE-SHA256SUMS.txt
+          )
+
+          tar -czf RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz "$O"
+          sha256sum RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz \
+            > RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-CUDY-FIRST-STATIC-CANDIDATE-13
+          path: |
+            RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz
+            RE-CUDY-FIRST-STATIC-CANDIDATE-13.tar.gz.sha256
