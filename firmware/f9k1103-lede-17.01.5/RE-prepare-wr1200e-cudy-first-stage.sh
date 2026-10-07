@@ -61,6 +61,14 @@ do
   copy_target_path "$rel"
 done
 
+# Candidate-11 TARGET_BOOT_FAIL forensic:
+# the kernel/uImage prefix is byte-identical to the boot-proven WIP03 image,
+# while Candidate-11 used the WR1200E swconfig binary against the physical
+# F9K1103 RTL8367R switch driver.  Switch control is a target hardware
+# boundary.  Preserve the exact boot-proven target swconfig while leaving
+# donor netifd/init/procd and the rest of Cudy userspace untouched.
+copy_target_path "sbin/swconfig"
+
 # The initial physical interface topology must come from the boot-verified
 # F9K1103 baseline. Cudy uci-defaults are preserved in OUT_ROOT and will
 # apply Cudy semantics on top of these target physical objects.
