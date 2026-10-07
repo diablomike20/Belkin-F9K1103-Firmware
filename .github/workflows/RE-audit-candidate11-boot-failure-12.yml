@@ -201,7 +201,46 @@ jobs:
             done
           } > "$O/RE-EARLY-ELF-ABI.txt"
 
+          python3 - "$D" "$T" "$O/RE-SWCONFIG-SYMBOL-COMPAT.txt" <<'PY'
+          import os,sys,subprocess,re
+          D,T,out=sys.argv[1:]
+          exe=os.path.join(T,'sbin/swconfig')
+          def readelf(args,path):
+              return subprocess.check_output(['readelf']+args+[path], text=True, errors='replace')
+          und=set()
+          for line in readelf(['-Ws'],exe).splitlines():
+              parts=line.split()
+              if len(parts) >= 8 and parts[6] == 'UND':
+                  n=parts[7].split('@',1)[0]
+                  if n and n != '0': und.add(n)
+          defs=set()
+          roots=[os.path.join(D,'lib'),os.path.join(D,'usr/lib')]
+          for root in roots:
+              for base,dirs,files in os.walk(root):
+                  for name in files:
+                      p=os.path.join(base,name)
+                      try:
+                          data=open(p,'rb').read(4)
+                          if data != b'\\x7fELF': continue
+                          txt=readelf(['-Ws'],p)
+                      except Exception:
+                          continue
+                      for line in txt.splitlines():
+                          parts=line.split()
+                          if len(parts) >= 8 and parts[6] != 'UND':
+                              n=parts[7].split('@',1)[0]
+                              if n: defs.add(n)
+          unresolved=sorted(n for n in und if n not in defs and n not in {'_gp_disp'})
+          with open(out,'w') as f:
+              f.write('TARGET_SWCONFIG_UNDEFINED=' + ','.join(sorted(und)) + '\\n')
+              f.write('UNRESOLVED_AGAINST_DONOR_LIBS=' + ','.join(unresolved) + '\\n')
+              f.write('SWCONFIG_SYMBOL_COMPAT=' + ('PASS' if not unresolved else 'FAIL') + '\\n')
+          if unresolved:
+              raise SystemExit('target swconfig has unresolved symbols against donor libs: '+','.join(unresolved))
+          PY
+
           {
+
             echo '===== BROKEN STAGE SYMLINKS ====='
             find "$S" -xdev -xtype l -printf '%p -> %l\n' | sort || true
             echo '===== INIT/PREINIT TREE ====='
