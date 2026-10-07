@@ -177,6 +177,78 @@ jobs:
           echo 'TARGET_SWCONFIG_DONOR_ABI_LOADER=PASS' \
             >> "$O/RE-TARGET-SWCONFIG-QEMU-LOADER.txt"
 
+      - name: Audit exact Cudy LAN IP firstboot truth
+        shell: bash
+        run: |
+          set -euo pipefail
+          O=RE-CUDY-FIRST-STATIC-CANDIDATE-12
+          D=/tmp/re12/donor-root
+          T=/tmp/re-cudy-first-candidate-12/target-root
+          S=/tmp/re-cudy-first-candidate-12/final-root
+
+          {
+            echo '===== DONOR exact IP references ====='
+            grep -RnaE '192\\.168\\.[0-9]+\\.[0-9]+|network\\.lan\\.ipaddr|lan\\.ipaddr' "$D/bin" "$D/etc" "$D/lib" "$D/sbin" "$D/usr" 2>/dev/null || true
+            echo
+            echo '===== BOOT-PROVEN TARGET exact IP references ====='
+            grep -RnaE '192\\.168\\.[0-9]+\\.[0-9]+|network\\.lan\\.ipaddr|lan\\.ipaddr' "$T/bin" "$T/etc" "$T/lib" "$T/sbin" "$T/usr" 2>/dev/null || true
+            echo
+            echo '===== FINAL CANDIDATE-12 exact IP references ====='
+            grep -RnaE '192\\.168\\.[0-9]+\\.[0-9]+|network\\.lan\\.ipaddr|lan\\.ipaddr' "$S/bin" "$S/etc" "$S/lib" "$S/sbin" "$S/usr" 2>/dev/null || true
+          } > "$O/RE-LAN-IP-ALL-REFERENCES.txt"
+
+          {
+            echo '===== BOOT-PROVEN TARGET /etc/config/network ====='
+            cat "$T/etc/config/network" 2>/dev/null || true
+            echo
+            echo '===== FINAL CANDIDATE-12 /etc/config/network ====='
+            cat "$S/etc/config/network" 2>/dev/null || true
+            echo
+            echo '===== DONOR /etc/config/network ====='
+            cat "$D/etc/config/network" 2>/dev/null || true
+          } > "$O/RE-LAN-IP-CONFIG-NETWORK.txt"
+
+          {
+            for who in DONOR TARGET FINAL; do
+              case "$who" in
+                DONOR) R="$D" ;;
+                TARGET) R="$T" ;;
+                FINAL) R="$S" ;;
+              esac
+              echo "===== $who ====="
+              for p in bin/config_generate etc/uci-defaults/01_network etc/uci-defaults/98-board etc/uci-defaults/99_oem etc/init.d/boot lib/functions/boot.sh; do
+                echo
+                echo "----- $p -----"
+                if [ -e "$R/$p" ] || [ -L "$R/$p" ]; then
+                  sha256sum "$R/$p" 2>/dev/null || true
+                  sed -n '1,320p' "$R/$p" 2>/dev/null || true
+                else
+                  echo ABSENT
+                fi
+              done
+            done
+          } > "$O/RE-LAN-IP-WRITER-FILES.txt"
+
+          {
+            echo '===== DONOR uci-defaults order / LAN writers ====='
+            find "$D/etc/uci-defaults" -maxdepth 1 -type f -printf '%f\\n' 2>/dev/null | sort
+            grep -RnaE 'network\\.lan|ipaddr|192\\.168\\.' "$D/etc/uci-defaults" 2>/dev/null || true
+            echo
+            echo '===== FINAL uci-defaults order / LAN writers ====='
+            find "$S/etc/uci-defaults" -maxdepth 1 -type f -printf '%f\\n' 2>/dev/null | sort
+            grep -RnaE 'network\\.lan|ipaddr|192\\.168\\.' "$S/etc/uci-defaults" 2>/dev/null || true
+          } > "$O/RE-LAN-IP-UCI-DEFAULTS-ORDER.txt"
+
+          {
+            echo '===== DONOR direct 192.168.10.x ====='
+            grep -Rna '192\\.168\\.10\\.' "$D" 2>/dev/null || true
+            echo
+            echo '===== DONOR direct 192.168.1.x ====='
+            grep -Rna '192\\.168\\.1\\.' "$D" 2>/dev/null || true
+          } > "$O/RE-LAN-IP-FOCUSED.txt"
+
+          echo 'LAN_IP_AUDIT=PASS' > "$O/RE-LAN-IP-AUDIT-STATUS.txt"
+
       - name: Final Candidate-12 static gate
         shell: bash
         run: |
