@@ -259,6 +259,102 @@ jobs:
 
           grep -E $'\t(DONOR|TARGET|OTHER)\t' "$O/RE-STAGE-ORIGIN-MAP.tsv"             > "$O/RE-STAGE-NONIDENTICAL-ORIGINS.tsv" || true
 
+          # Deep LAN-IP provenance audit.
+          {
+            echo '===== EXACT IPV4 LITERALS ====='
+            for label in DONOR TARGET STAGE; do
+              case "$label" in DONOR) R="$D";; TARGET) R="$T";; STAGE) R="$S";; esac
+              echo "### $label"
+              grep -aRInE --exclude='*.ko' --exclude='*.so' --exclude='*.gz' --exclude='*.xz' \
+                '192\.168\.(1|10)\.[0-9]+|network\.lan\.ipaddr|lan.*ipaddr|ipaddr.*lan' \
+                "$R/etc" "$R/bin" "$R/sbin" "$R/lib" "$R/usr" 2>/dev/null | head -n 1200 || true
+            done
+
+            echo
+            echo '===== BINARY/OPAQUE EXACT IP STRINGS ====='
+            for label in DONOR TARGET STAGE; do
+              case "$label" in DONOR) R="$D";; TARGET) R="$T";; STAGE) R="$S";; esac
+              echo "### $label"
+              while IFS= read -r -d '' p; do
+                hits="$(strings -a "$p" 2>/dev/null | grep -E '192\.168\.(1|10)\.[0-9]+' | sort -u || true)"
+                [ -n "$hits" ] || continue
+                printf '%s\n' "--- PATH"
+                printf '%s\n' "$p"
+                printf '%s\n' "$hits"
+              done < <(find "$R" -xdev -type f -print0)
+            done
+          } > "$O/RE-LAN-IP-ALL-REFERENCES.txt"
+
+          {
+            for label in DONOR TARGET STAGE; do
+              case "$label" in DONOR) R="$D";; TARGET) R="$T";; STAGE) R="$S";; esac
+              echo "================ $label ================"
+              for rel in \
+                etc/config/network \
+                bin/config_generate \
+                etc/board.d/02_network \
+                etc/uci-defaults/01_network \
+                etc/uci-defaults/02_network \
+                etc/uci-defaults/98-board \
+                etc/uci-defaults/99_oem \
+                etc/init.d/network \
+                lib/functions.sh \
+                lib/functions/uci-defaults.sh \
+                lib/ramips.sh
+              do
+                p="$R/$rel"
+                echo
+                echo "----- $rel -----"
+                if [ -L "$p" ]; then
+                  echo "SYMLINK -> $(readlink "$p")"
+                  p="$(readlink -f "$p" 2>/dev/null || true)"
+                fi
+                if [ -f "$p" ]; then
+                  sha256sum "$p" || true
+                  file "$p" || true
+                  if file "$p" | grep -qE 'text|script|empty'; then
+                    sed -n '1,320p' "$p" || true
+                  else
+                    strings -a "$p" | grep -E '192\.168\.|network\.lan|ipaddr|lan' | head -n 300 || true
+                  fi
+                else
+                  echo ABSENT
+                fi
+              done
+            done
+          } > "$O/RE-LAN-IP-CRITICAL-FILES.txt"
+
+          {
+            echo '===== UCI-DEFAULT ORDER: DONOR ====='
+            find "$D/etc/uci-defaults" -maxdepth 1 -type f -printf '%f\n' 2>/dev/null | sort || true
+            echo
+            echo '===== UCI-DEFAULT ORDER: STAGE ====='
+            find "$S/etc/uci-defaults" -maxdepth 1 -type f -printf '%f\n' 2>/dev/null | sort || true
+            echo
+            echo '===== WRITERS OF LAN IP / NETWORK.LAN ====='
+            for label in DONOR STAGE; do
+              case "$label" in DONOR) R="$D";; STAGE) R="$S";; esac
+              echo "### $label"
+              grep -aRInE \
+                'network\.lan|lan\.ipaddr|ipaddr=.*192\.168|uci (set|add_list).*network.*lan|uci set network\.lan' \
+                "$R/etc/uci-defaults" "$R/bin/config_generate" "$R/etc/board.d" 2>/dev/null || true
+            done
+          } > "$O/RE-LAN-IP-WRITER-PRECEDENCE.txt"
+
+          {
+            echo 'LAN_IP_FORENSIC=PASS'
+            echo -n 'DONOR_HAS_192_168_10_1='
+            if grep -aRqs '192\.168\.10\.1' "$D"; then echo YES; else echo NO; fi
+            echo -n 'DONOR_HAS_192_168_1_1='
+            if grep -aRqs '192\.168\.1\.1' "$D"; then echo YES; else echo NO; fi
+            echo -n 'TARGET_CONFIG_NETWORK_192_168_1_1='
+            if grep -aEqs '192\.168\.1\.1' "$T/etc/config/network" 2>/dev/null; then echo YES; else echo NO; fi
+            echo -n 'STAGE_CONFIG_NETWORK_192_168_1_1='
+            if grep -aEqs '192\.168\.1\.1' "$S/etc/config/network" 2>/dev/null; then echo YES; else echo NO; fi
+            echo -n 'STAGE_HAS_192_168_10_1='
+            if grep -aRqs '192\.168\.10\.1' "$S"; then echo YES; else echo NO; fi
+          } > "$O/RE-LAN-IP-SUMMARY.txt"
+
           {
             echo 'FORENSIC=PASS'
             echo 'BOOT_GOOD_SHA256=1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560'
