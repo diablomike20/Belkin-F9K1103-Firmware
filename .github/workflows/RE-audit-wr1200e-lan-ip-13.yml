@@ -1,0 +1,183 @@
+name: RE WR1200E LAN IP truth audit 13
+
+on:
+  push:
+    branches: [re-f9k1103-cudy-first-bootfix-12]
+    paths:
+      - '.github/workflows/RE-audit-wr1200e-lan-ip-13.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: re-f9k1103-cudy-first-bootfix-12
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools unzip rsync file
+
+      - name: Acquire exact donor and boot-proven target
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/reip13 RE-WR1200E-LAN-IP-TRUTH-13
+          mkdir -p /tmp/reip13/donor /tmp/reip13/target RE-WR1200E-LAN-IP-TRUTH-13
+
+          URL='https://www.cudy.com/cdn/shop/files/WR1200E-R62-2.4.25-20260114-184136-flash.zip?v=12982462962593522136'
+          ZIP_SHA='2e9a8dafc930a2070d45f706ec5d362428475044dcd791232f86eee7b9f4ef21'
+          BIN_SHA='086055b0227910f9ddabbb13bfa6b06a3850105bd46a3572b76116bf5a3043fa'
+
+          curl -fL --retry 3 "$URL" -o /tmp/reip13/donor/donor.zip
+          echo "$ZIP_SHA  /tmp/reip13/donor/donor.zip" | sha256sum -c -
+          unzip -q /tmp/reip13/donor/donor.zip -d /tmp/reip13/donor/unzip
+          DONOR_BIN="$(find /tmp/reip13/donor/unzip -type f -name '*.bin' | head -n1)"
+          test -n "$DONOR_BIN"
+          echo "$BIN_SHA  $DONOR_BIN" | sha256sum -c -
+
+          python3 - "$DONOR_BIN" <<'PY'
+          import pathlib,sys
+          b=pathlib.Path(sys.argv[1]).read_bytes()
+          i=b.find(b'hsqs')
+          if i<0: raise SystemExit('donor squashfs missing')
+          pathlib.Path('/tmp/reip13/donor/rootfs.sqfs').write_bytes(b[i:])
+          PY
+          sudo unsquashfs -no-progress -d /tmp/reip13/donor/root /tmp/reip13/donor/rootfs.sqfs >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" /tmp/reip13/donor/root
+
+          gh run download 37248840659 \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name F9K1103-CUDY-WIP03-RADIOFIX-FAST-REPACK-V2 \
+            --dir /tmp/reip13/target/artifact
+          TARGET_BIN="$(find /tmp/reip13/target/artifact -type f -name '*sysupgrade.bin' | head -n1)"
+          test -n "$TARGET_BIN"
+          echo '1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560  '"$TARGET_BIN" | sha256sum -c -
+
+          python3 - "$TARGET_BIN" <<'PY'
+          import pathlib,sys
+          b=pathlib.Path(sys.argv[1]).read_bytes()
+          i=b.find(b'hsqs')
+          if i<0: raise SystemExit('target squashfs missing')
+          pathlib.Path('/tmp/reip13/target/rootfs.sqfs').write_bytes(b[i:])
+          PY
+          sudo unsquashfs -no-progress -d /tmp/reip13/target/root /tmp/reip13/target/rootfs.sqfs >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" /tmp/reip13/target/root
+
+      - name: Reconstruct current Candidate-12 stage
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash firmware/f9k1103-lede-17.01.5/RE-prepare-wr1200e-cudy-first-stage.sh \
+            /tmp/reip13/donor/root \
+            /tmp/reip13/target/root \
+            /tmp/reip13/stage
+
+      - name: Extract LAN IP truth
+        shell: bash
+        run: |
+          set -euo pipefail
+          O=RE-WR1200E-LAN-IP-TRUTH-13
+          D=/tmp/reip13/donor/root
+          T=/tmp/reip13/target/root
+          S=/tmp/reip13/stage
+
+          {
+            echo '===== EXACT IP LITERALS: DONOR ====='
+            grep -RnaE '192\.168\.[0-9]+\.[0-9]+|network\.lan\.ipaddr|lan\.ipaddr|ipaddr.*lan' "$D"/bin "$D"/etc "$D"/lib "$D"/sbin "$D"/usr 2>/dev/null || true
+            echo
+            echo '===== EXACT IP LITERALS: TARGET ====='
+            grep -RnaE '192\.168\.[0-9]+\.[0-9]+|network\.lan\.ipaddr|lan\.ipaddr|ipaddr.*lan' "$T"/bin "$T"/etc "$T"/lib "$T"/sbin "$T"/usr 2>/dev/null || true
+            echo
+            echo '===== EXACT IP LITERALS: STAGE ====='
+            grep -RnaE '192\.168\.[0-9]+\.[0-9]+|network\.lan\.ipaddr|lan\.ipaddr|ipaddr.*lan' "$S"/bin "$S"/etc "$S"/lib "$S"/sbin "$S"/usr 2>/dev/null || true
+          } > "$O/RE-ALL-LAN-IP-REFERENCES.txt"
+
+          dump() {
+            local root="$1" label="$2"
+            {
+              echo "===== $label ====="
+              for p in \
+                etc/config/network \
+                bin/config_generate \
+                etc/uci-defaults/01_network \
+                etc/uci-defaults/02_network \
+                etc/uci-defaults/98-board \
+                etc/uci-defaults/99_oem \
+                etc/init.d/boot \
+                lib/functions/boot.sh \
+                lib/functions/system.sh \
+                lib/ramips.sh
+              do
+                echo
+                echo "----- $p -----"
+                if [ -e "$root/$p" ] || [ -L "$root/$p" ]; then
+                  ls -l "$root/$p"
+                  sha256sum "$root/$p" 2>/dev/null || true
+                  sed -n '1,260p' "$root/$p" 2>/dev/null || true
+                else
+                  echo ABSENT
+                fi
+              done
+            } > "$O/RE-$label-BOOT-NETWORK-FILES.txt"
+          }
+          dump "$D" DONOR
+          dump "$T" TARGET
+          dump "$S" STAGE
+
+          {
+            echo '===== DONOR UCI-DEFAULTS ORDER + NETWORK WRITERS ====='
+            find "$D/etc/uci-defaults" -maxdepth 1 -type f -printf '%f\n' | sort
+            echo
+            grep -RnaE 'network\.(lan|wan)|uci .*network|ipaddr|gateway|dhcp' "$D/etc/uci-defaults" 2>/dev/null || true
+            echo
+            echo '===== STAGE UCI-DEFAULTS ORDER + NETWORK WRITERS ====='
+            find "$S/etc/uci-defaults" -maxdepth 1 -type f -printf '%f\n' | sort
+            echo
+            grep -RnaE 'network\.(lan|wan)|uci .*network|ipaddr|gateway|dhcp' "$S/etc/uci-defaults" 2>/dev/null || true
+          } > "$O/RE-UCI-DEFAULTS-NETWORK-ORDER.txt"
+
+          {
+            echo '===== TARGET /etc/config/network ====='
+            cat "$T/etc/config/network" 2>/dev/null || true
+            echo
+            echo '===== STAGE /etc/config/network ====='
+            cat "$S/etc/config/network" 2>/dev/null || true
+            echo
+            echo '===== DONOR /etc/config/network ====='
+            cat "$D/etc/config/network" 2>/dev/null || true
+          } > "$O/RE-CONFIG-NETWORK-COMPARISON.txt"
+
+          {
+            echo '===== DIRECT 192.168.10.x REFERENCES ====='
+            grep -Rna '192\.168\.10\.' "$D" 2>/dev/null || true
+            echo
+            echo '===== DIRECT 192.168.1.x REFERENCES ====='
+            grep -Rna '192\.168\.1\.' "$D" 2>/dev/null || true
+          } > "$O/RE-DONOR-IP-LITERALS-FOCUSED.txt"
+
+          cat > "$O/RE-STATUS.txt" <<'EOF'
+AUDIT=WR1200E_R62_2.4.25_LAN_IP_TRUTH
+DONOR_ZIP_SHA256=2e9a8dafc930a2070d45f706ec5d362428475044dcd791232f86eee7b9f4ef21
+DONOR_BIN_SHA256=086055b0227910f9ddabbb13bfa6b06a3850105bd46a3572b76116bf5a3043fa
+TARGET_WIP03_SHA256=1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560
+PURPOSE=EXACT_LAN_IP_WRITER_AND_FIRSTBOOT_ORDER
+EOF
+
+          tar -czf RE-WR1200E-LAN-IP-TRUTH-13.tar.gz "$O"
+          sha256sum RE-WR1200E-LAN-IP-TRUTH-13.tar.gz > RE-WR1200E-LAN-IP-TRUTH-13.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-WR1200E-LAN-IP-TRUTH-13
+          path: |
+            RE-WR1200E-LAN-IP-TRUTH-13.tar.gz
+            RE-WR1200E-LAN-IP-TRUTH-13.tar.gz.sha256
