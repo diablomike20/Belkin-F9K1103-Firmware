@@ -29,6 +29,16 @@ uci set system.board.wan_port='4'
 # the Cudy UI/runtime port-count metadata.
 uci set system.board.ports='5'
 
+# Exact WR1200E R62 / 2.4.25 donor 01_network sets both
+# network.lan.def_ipaddr and network.lan.ipaddr to 192.168.10.1 on firstboot.
+# For this F9K1103 engineering target use a deterministic, conflict-free
+# management address requested for physical testing while preserving the Cudy
+# 192.168.10.0/24 LAN contract.
+if uci -q get network.lan >/dev/null 2>&1; then
+    uci set network.lan.def_ipaddr='192.168.10.2'
+    uci set network.lan.ipaddr='192.168.10.2'
+fi
+
 # Exact WR1200E R62 donor audit proves stock 2.4.25 never writes
 # system.board.portnum.  Some WAN scripts read it as a legacy optional input,
 # but inventing portnum=5 changes donor behavior.  Leave it unset exactly as
@@ -107,5 +117,6 @@ uci -q get wireless.radio0 >/dev/null 2>&1 && uci set wireless.radio0.band='2g'
 uci -q get wireless.radio1 >/dev/null 2>&1 && uci set wireless.radio1.band='5g'
 
 uci commit system
+uci commit network
 uci commit wireless
 exit 0
