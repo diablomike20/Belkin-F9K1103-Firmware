@@ -204,7 +204,23 @@ jobs:
           grep -q '^ACCESS_SAFETY=TARGET_SHADOW_PRESERVED$' "$O/RE-CANDIDATE-STATUS.txt"
           grep -q '^CUDY_11_FIX_PASSWD=BYTE_IDENTICAL$' "$O/RE-CANDIDATE-STATUS.txt"
           grep -q '^BDINFO_BACKING=UNPROVISIONED_NO_FAKE_CHECKUUID$' "$O/RE-CANDIDATE-STATUS.txt"
-          grep -q '^WAN_AUTO_PROTOCOL_DETECT=NOT_YET_PARITY_VERIFIED$' "$O/RE-CANDIDATE-STATUS.txt"
+          grep -q '^WAN_AUTO_PROTOCOL_DETECT=NOT_YET_PARITY_VERIFIED
+          tar -czf RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz "$O"
+          sha256sum RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz \
+            > RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-CUDY-FIRST-STATIC-CANDIDATE-12
+          path: |
+            RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz
+            RE-CUDY-FIRST-STATIC-CANDIDATE-12.tar.gz.sha256
+ "$O/RE-CANDIDATE-STATUS.txt"
+
+          (
+            cd "$O"
+            sha256sum -c RE-SHA256SUMS.txt
+          )
 
           sha256sum "$IMG" > "$O/RE-CANDIDATE-12-IMAGE-SHA256.txt"
 
