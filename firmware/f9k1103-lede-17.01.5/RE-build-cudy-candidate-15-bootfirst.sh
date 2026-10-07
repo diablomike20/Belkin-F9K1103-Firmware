@@ -51,6 +51,17 @@ rsync -aH --numeric-ids \
     --exclude='/rom/***' \
     "$WORK/target-root/" "$WORK/stage/"
 
+# Preserve the empty mount points themselves. Candidate-15 rev1 accidentally
+# excluded these directories together with their runtime contents. procd early()
+# mounts proc/sysfs/tmpfs onto these paths; without the mount points, early
+# mounts fail and /etc/preinit observes /proc as missing.
+for d in dev proc sys tmp overlay rom; do
+    if [ -d "$WORK/target-root/$d" ]; then
+        mkdir -p "$WORK/stage/$d"
+        chmod --reference="$WORK/target-root/$d" "$WORK/stage/$d"
+    fi
+done
+
 # ---------------------------------------------------------------------------
 # 1. Exact Cudy 2.4.25 web/LuCI application layer.
 # ---------------------------------------------------------------------------
@@ -106,7 +117,7 @@ install -m 0755 "$RADIO_ENABLE"     "$WORK/stage/etc/uci-defaults/96zz-f9k1103-e
 
 # Candidate identity. Keep physical board identity in UCI; this is only the
 # visible firmware version string.
-printf '%s\n' '2.4.25-F9K1103-Cudy-C15' > "$WORK/stage/etc/rom_version"
+printf '%s\n' '2.4.25-F9K1103-Cudy-C15R2' > "$WORK/stage/etc/rom_version"
 
 # TR-069/CWMP stays permanently excluded from this project.
 rm -f     "$WORK/stage/usr/lib/lua/luci/controller/cwmp.lua"     "$WORK/stage/usr/lib/lua/luci/model/cbi/cwmp.lua"     "$WORK/stage/etc/init.d/cwmp"     "$WORK/stage/usr/bin/cwmp"     "$WORK/stage/usr/sbin/cwmp"
@@ -117,6 +128,12 @@ rm -f     "$WORK/stage/usr/lib/lua/luci/apprpc/cellular.lua"     "$WORK/stage/us
 # ---------------------------------------------------------------------------
 # 4. Hard gate: physical boot/network/hardware core must remain WIP03 exact.
 # ---------------------------------------------------------------------------
+for d in dev proc sys tmp overlay rom; do
+    [ -d "$WORK/stage/$d" ] || {
+        echo "ERROR: required early-boot mount point missing: /$d" >&2
+        exit 1
+    }
+done
 : > "$OUT/RE-TARGET-CORE-SHA256.txt"
 for rel in     bin     sbin     lib     etc/preinit     lib/preinit     etc/inittab     etc/board.d     lib/ramips.sh     lib/upgrade     etc/fw_env.config     etc/rc.d     etc/hotplug.d     etc/config/network     etc/config/wireless     etc/config/firewall     etc/config/dhcp     etc/shadow     etc/init.d/network     etc/init.d/firewall     etc/init.d/dnsmasq     etc/init.d/dropbear     etc/init.d/uhttpd
 do
@@ -154,9 +171,10 @@ grep -Raq 'Cudy' "$WORK/stage/usr/lib/lua/luci/view" "$WORK/stage/www" || {
 # ---------------------------------------------------------------------------
 # 5. Pack using the exact WIP03 kernel/uImage and fwtool record.
 # ---------------------------------------------------------------------------
-mksquashfs "$WORK/stage" "$WORK/rootfs-new.squashfs"     -comp xz -b 262144 -noappend -no-progress >/dev/null
+mksquashfs "$WORK/stage" "$WORK/rootfs-new.squashfs" \
+    -comp xz -b 262144 -all-root -noappend -no-progress >/dev/null
 
-IMAGE="$OUT/RE-F9K1103-CUDY-WR1200E-CANDIDATE-15-BOOTFIRST-sysupgrade.bin"
+IMAGE="$OUT/RE-F9K1103-CUDY-WR1200E-CANDIDATE-15R2-BOOTFIRST-sysupgrade.bin"
 cat "$WORK/base/kernel.bin" "$WORK/rootfs-new.squashfs" "$WORK/base/fwtool-meta.bin" > "$IMAGE"
 
 python3 "$REPACK" validate "$IMAGE" "$OUT/RE-STATIC-VALIDATION.txt"
@@ -175,12 +193,18 @@ do
     fi
 done
 
+for d in dev proc sys tmp overlay rom; do
+    [ -d "$WORK/final-root/$d" ] || {
+        echo "ERROR: packed image missing early-boot mount point: /$d" >&2
+        exit 1
+    }
+done
 test -x "$WORK/final-root/etc/uci-defaults/96zz-f9k1103-enable-radios"
 grep -q "wireless.\$r.disabled='0'" "$RADIO_ENABLE" 2>/dev/null || true
-grep -q '2.4.25-F9K1103-Cudy-C15' "$WORK/final-root/etc/rom_version"
+grep -q '2.4.25-F9K1103-Cudy-C15R2' "$WORK/final-root/etc/rom_version"
 
 {
-    echo 'STATUS=STATIC_CANDIDATE_15_BOOTFIRST'
+    echo 'STATUS=STATIC_CANDIDATE_15R2_BOOTFIRST'
     echo 'FLASH_AUTHORIZATION=NO'
     echo 'BASE=WIP03_RADIOFIX_PHYSICAL_BOOT_PASS'
     echo 'BASE_SHA256=1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560'
@@ -201,6 +225,8 @@ grep -q '2.4.25-F9K1103-Cudy-C15' "$WORK/final-root/etc/rom_version"
     echo 'RADIO0=2.4G_ENABLED'
     echo 'RADIO1=5G_ENABLED'
     echo 'LAN_BASELINE=192.168.1.1_WIP03'
+    echo 'EARLY_BOOT_MOUNTPOINTS=DEV_PROC_SYS_TMP_OVERLAY_ROM_PRESENT'
+    echo 'SQUASHFS_OWNERSHIP=ALL_ROOT'
     echo "IMAGE_BYTES=$(stat -c %s "$IMAGE")"
     echo "ROOTFS_SQUASHFS_BYTES=$(stat -c %s "$WORK/rootfs-new.squashfs")"
 } > "$OUT/RE-CANDIDATE-15-STATUS.txt"
@@ -209,10 +235,10 @@ cp "$WORK/base/layout.txt" "$OUT/RE-BASE-LAYOUT.txt"
 
 (
     cd "$OUT"
-    sha256sum "RE-F9K1103-CUDY-WR1200E-CANDIDATE-15-BOOTFIRST-sysupgrade.bin"         > RE-CANDIDATE-15-IMAGE-SHA256.txt
+    sha256sum "RE-F9K1103-CUDY-WR1200E-CANDIDATE-15R2-BOOTFIRST-sysupgrade.bin"         > RE-CANDIDATE-15R2-IMAGE-SHA256.txt
     find . -maxdepth 1 -type f -name 'RE-*' ! -name 'RE-SHA256SUMS.txt' -print0         | sort -z | xargs -0 sha256sum > RE-SHA256SUMS.txt
     sha256sum -c RE-SHA256SUMS.txt
 )
 
-echo "Candidate-15 built: $IMAGE"
+echo "Candidate-15R2 built: $IMAGE"
 echo "Static build only. Physical flash remains a separate explicit gate."
