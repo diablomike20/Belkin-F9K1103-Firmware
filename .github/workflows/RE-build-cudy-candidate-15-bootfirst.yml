@@ -63,7 +63,8 @@ jobs:
           Path('/tmp/re15/donor.sqfs').write_bytes(b[i:])
           PY
 
-          unsquashfs -no-progress -d /tmp/re15/donor-root /tmp/re15/donor.sqfs >/dev/null
+          sudo unsquashfs -no-progress -d /tmp/re15/donor-root /tmp/re15/donor.sqfs >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" /tmp/re15/donor-root
 
       - name: Acquire exact physically boot-proven WIP03 RADIOFIX
         env:
