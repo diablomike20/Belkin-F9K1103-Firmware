@@ -1,0 +1,114 @@
+name: RE WR1200E exact LAN IP audit 13
+
+on:
+  push:
+    branches: [re-wr1200e-lan-ip-audit-13]
+    paths:
+      - '.github/workflows/RE-wr1200e-exact-lan-ip-audit-13.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: re-wr1200e-lan-ip-audit-13
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools unzip
+
+      - name: Extract exact WR1200E donor network truth
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/reip13 RE-WR1200E-EXACT-LAN-IP-AUDIT-13
+          mkdir -p /tmp/reip13/unzip RE-WR1200E-EXACT-LAN-IP-AUDIT-13
+
+          URL='https://www.cudy.com/cdn/shop/files/WR1200E-R62-2.4.25-20260114-184136-flash.zip?v=12982462962593522136'
+          ZIP_SHA='2e9a8dafc930a2070d45f706ec5d362428475044dcd791232f86eee7b9f4ef21'
+          BIN_SHA='086055b0227910f9ddabbb13bfa6b06a3850105bd46a3572b76116bf5a3043fa'
+
+          curl -fL --retry 3 "$URL" -o /tmp/reip13/donor.zip
+          echo "$ZIP_SHA  /tmp/reip13/donor.zip" | sha256sum -c -
+          unzip -q /tmp/reip13/donor.zip -d /tmp/reip13/unzip
+
+          BIN="$(find /tmp/reip13/unzip -type f -name '*.bin' | head -n1)"
+          test -n "$BIN"
+          echo "$BIN_SHA  $BIN" | sha256sum -c -
+
+          python3 - "$BIN" <<'PY'
+          import pathlib,sys
+          b=pathlib.Path(sys.argv[1]).read_bytes()
+          i=b.find(b'hsqs')
+          if i < 0: raise SystemExit('squashfs missing')
+          pathlib.Path('/tmp/reip13/rootfs.sqfs').write_bytes(b[i:])
+          print('SQUASHFS_OFFSET='+str(i))
+          PY
+
+          sudo unsquashfs -no-progress -d /tmp/reip13/root /tmp/reip13/rootfs.sqfs >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" /tmp/reip13/root
+
+          R=/tmp/reip13/root
+          O=RE-WR1200E-EXACT-LAN-IP-AUDIT-13
+
+          for p in \
+            etc/uci-defaults/01_network \
+            bin/config_generate \
+            etc/config/network \
+            etc/uci-defaults/98-board \
+            etc/uci-defaults/99_oem
+          do
+            out="$O/$(echo "$p" | tr '/' '_').txt"
+            {
+              echo "PATH=$p"
+              if [ -e "$R/$p" ] || [ -L "$R/$p" ]; then
+                sha256sum "$R/$p" || true
+                echo '----- CONTENT -----'
+                cat "$R/$p" 2>/dev/null || true
+              else
+                echo ABSENT
+              fi
+            } > "$out"
+          done
+
+          {
+            echo '===== LAN IP WRITERS ====='
+            grep -RnaE 'network\.lan|def_ipaddr|192\.168\.(1|10)\.[0-9]+|ipaddr' \
+              "$R/etc/uci-defaults" "$R/bin/config_generate" "$R/etc/board.d" 2>/dev/null || true
+          } > "$O/RE-LAN-IP-WRITERS.txt"
+
+          {
+            echo '===== 192.168.10.x ====='
+            grep -Rna '192\.168\.10\.' "$R/etc" "$R/bin" "$R/lib" "$R/sbin" "$R/usr" "$R/www" 2>/dev/null || true
+            echo
+            echo '===== 192.168.1.x ====='
+            grep -Rna '192\.168\.1\.' "$R/etc" "$R/bin" "$R/lib" "$R/sbin" "$R/usr" "$R/www" 2>/dev/null || true
+          } > "$O/RE-FOCUSED-IP-LITERALS.txt"
+
+          {
+            echo 'AUDIT=PASS'
+            echo "DONOR_ZIP_SHA256=$ZIP_SHA"
+            echo "DONOR_BIN_SHA256=$BIN_SHA"
+            echo -n '01_NETWORK_HAS_192_168_10_1='
+            grep -q '192\.168\.10\.1' "$R/etc/uci-defaults/01_network" && echo YES || echo NO
+            echo -n '01_NETWORK_WRITES_NETWORK_LAN_IPADDR='
+            grep -q 'network\.lan\.ipaddr' "$R/etc/uci-defaults/01_network" && echo YES || echo NO
+            echo -n '01_NETWORK_WRITES_DEF_IPADDR='
+            grep -q 'network\.lan\.def_ipaddr' "$R/etc/uci-defaults/01_network" && echo YES || echo NO
+          } > "$O/RE-SUMMARY.txt"
+
+          tar -czf RE-WR1200E-EXACT-LAN-IP-AUDIT-13.tar.gz "$O"
+          sha256sum RE-WR1200E-EXACT-LAN-IP-AUDIT-13.tar.gz > RE-WR1200E-EXACT-LAN-IP-AUDIT-13.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-WR1200E-EXACT-LAN-IP-AUDIT-13
+          path: |
+            RE-WR1200E-EXACT-LAN-IP-AUDIT-13.tar.gz
+            RE-WR1200E-EXACT-LAN-IP-AUDIT-13.tar.gz.sha256
