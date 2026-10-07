@@ -1,0 +1,17 @@
+#!/bin/sh
+# F9K1103 Candidate-15 physical radio enable postcondition.
+# WIP03 physical target test proved:
+#   radio0 = PCI RT309x = 2.4 GHz
+#   radio1 = RT3883 WMAC = 5 GHz
+#
+# The boot-proven LEDE baseline generated both radios disabled.
+# Cudy router defaults expect the primary AP radios available.
+
+for r in radio0 radio1; do
+    if uci -q get wireless.$r >/dev/null 2>&1; then
+        uci set wireless.$r.disabled='0'
+    fi
+done
+
+uci commit wireless
+exit 0
