@@ -270,19 +270,6 @@ jobs:
                 "$R/etc" "$R/bin" "$R/sbin" "$R/lib" "$R/usr" 2>/dev/null | head -n 1200 || true
             done
 
-            echo
-            echo '===== BINARY/OPAQUE EXACT IP STRINGS ====='
-            for label in DONOR TARGET STAGE; do
-              case "$label" in DONOR) R="$D";; TARGET) R="$T";; STAGE) R="$S";; esac
-              echo "### $label"
-              while IFS= read -r -d '' p; do
-                hits="$(strings -a "$p" 2>/dev/null | grep -E '192\.168\.(1|10)\.[0-9]+' | sort -u || true)"
-                [ -n "$hits" ] || continue
-                printf '%s\n' "--- PATH"
-                printf '%s\n' "$p"
-                printf '%s\n' "$hits"
-              done < <(find "$R" -xdev -type f -print0)
-            done
           } > "$O/RE-LAN-IP-ALL-REFERENCES.txt"
 
           {
