@@ -28,9 +28,12 @@ uci set system.board.wan_port='4'
 # placement is owned by the target board.d/RTL8367R layer; this value is only
 # the Cudy UI/runtime port-count metadata.
 uci set system.board.ports='5'
-# Cudy WAN/switch scripts also consume the legacy singular metadata key
-# "portnum".  Keep both fields aligned with the physical F9K1103 topology.
-uci set system.board.portnum='5'
+
+# Exact WR1200E R62 donor audit proves stock 2.4.25 never writes
+# system.board.portnum.  Some WAN scripts read it as a legacy optional input,
+# but inventing portnum=5 changes donor behavior.  Leave it unset exactly as
+# stock R62 does.
+uci -q delete system.board.portnum
 
 # Physical target enumeration was verified on the real F9K1103:
 #   radio0 = PCI RT3091/3092, 2.4 GHz
