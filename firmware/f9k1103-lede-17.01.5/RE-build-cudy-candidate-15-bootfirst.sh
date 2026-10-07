@@ -35,7 +35,8 @@ rm -rf "$WORK" "$OUT"
 mkdir -p "$WORK" "$OUT"
 
 python3 "$REPACK" split "$BASE_IMG" "$WORK/base"
-unsquashfs -no-progress -d "$WORK/target-root" "$WORK/base/rootfs.squashfs" >/dev/null
+sudo unsquashfs -no-progress -d "$WORK/target-root" "$WORK/base/rootfs.squashfs" >/dev/null
+sudo chown -R "$(id -u):$(id -g)" "$WORK/target-root"
 
 # Stage starts as the exact physically boot-proven WIP03 rootfs.
 cp -a "$WORK/target-root" "$WORK/stage"
@@ -150,7 +151,8 @@ cat "$WORK/base/kernel.bin" "$WORK/rootfs-new.squashfs" "$WORK/base/fwtool-meta.
 
 python3 "$REPACK" validate "$IMAGE" "$OUT/RE-STATIC-VALIDATION.txt"
 python3 "$REPACK" extract-rootfs "$IMAGE" "$WORK/final-rootfs.squashfs"
-unsquashfs -no-progress -d "$WORK/final-root" "$WORK/final-rootfs.squashfs" >/dev/null
+sudo unsquashfs -no-progress -d "$WORK/final-root" "$WORK/final-rootfs.squashfs" >/dev/null
+sudo chown -R "$(id -u):$(id -g)" "$WORK/final-root"
 
 # Re-run target-core gate after repack.
 for rel in     bin     sbin     lib     etc/preinit     lib/preinit     etc/inittab     etc/board.d     lib/ramips.sh     lib/upgrade     etc/fw_env.config     etc/rc.d     etc/hotplug.d     etc/config/network     etc/config/wireless     etc/config/firewall     etc/config/dhcp     etc/shadow     etc/init.d/network     etc/init.d/firewall     etc/init.d/dnsmasq     etc/init.d/dropbear     etc/init.d/uhttpd
