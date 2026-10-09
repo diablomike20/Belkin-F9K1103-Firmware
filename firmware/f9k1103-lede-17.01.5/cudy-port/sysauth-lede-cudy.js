@@ -46,7 +46,7 @@ function get_password_input() {
 
 function sysauth_check_password(pwd) {
 	setTimeout(function() {
-		if ((pwd.value.length < 1) || (pwd.value.length > 64)) {
+		if ((pwd.value.length < 8) || (pwd.value.length > 64)) {
 			$(pwd).parent().addClass("has-error");
 			$("button[type=submit]").prop("disabled", true);
 		} else {
