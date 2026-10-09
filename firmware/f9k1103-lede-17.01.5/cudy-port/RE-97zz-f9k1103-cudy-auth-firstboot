@@ -1,0 +1,37 @@
+#!/bin/sh
+# Candidate-15R5 F9K1103/Cudy firstboot authentication seam.
+#
+# The WR1200E donor seeds root from Cudy-specific bdinfo fuuid+hmac.  Those
+# identities do not exist on the Belkin target and must not be fabricated.
+# Instead, protect the initially empty WIP03 root account with an unreported
+# random temporary password, then let the Cudy "Create administrator password"
+# UI replace it exactly once through luci.sauth.defpasswd=1.
+
+rootpw="$(awk -F: '$1 == "root" { print $2; exit }' /etc/shadow 2>/dev/null)"
+
+if [ -z "$rootpw" ]; then
+    seed="$(cat /proc/sys/kernel/random/uuid 2>/dev/null | tr -d '-\r\n')"
+    if [ -z "$seed" ]; then
+        seed="$(dd if=/dev/urandom bs=32 count=1 2>/dev/null | sha256sum | cut -d' ' -f1)"
+    fi
+
+    [ -n "$seed" ] || exit 1
+    (echo "$seed"; sleep 1; echo "$seed") | passwd root >/dev/null 2>&1 || exit 1
+    unset seed
+fi
+
+uci -q get luci.main >/dev/null 2>&1 || uci set luci.main='core'
+uci -q get luci.sauth >/dev/null 2>&1 || uci set luci.sauth='internal'
+
+uci -q delete luci.main.sysauth >/dev/null 2>&1
+uci add_list luci.main.sysauth='admin'
+uci set luci.main.showuser='0'
+uci set luci.sauth.defpasswd='1'
+
+# Candidate-15R5 intentionally uses target LEDE's native password verifier.
+# Do not advertise the donor salt/token transform when the transport is plain
+# password over the local LuCI form.
+uci -q delete luci.sauth.salt >/dev/null 2>&1
+
+uci commit luci
+exit 0
