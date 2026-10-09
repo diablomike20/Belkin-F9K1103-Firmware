@@ -5,7 +5,7 @@ on:
     branches:
       - re-f9k1103-cudy-candidate-15r5-firstboot
     paths:
-      - '.github/workflows/RE-build-cudy-candidate-15r4-unified.yml'
+      - '.github/workflows/RE-build-cudy-candidate-15r5-firstboot.yml'
       - 'firmware/f9k1103-lede-17.01.5/RE-build-cudy-candidate-15-bootfirst.sh'
       - 'firmware/f9k1103-lede-17.01.5/cudy-port/RE-96zz-f9k1103-enable-radios'
       - 'firmware/f9k1103-lede-17.01.5/cudy-port/sysauth-lede-cudy.js'
