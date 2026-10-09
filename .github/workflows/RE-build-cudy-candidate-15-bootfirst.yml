@@ -67,6 +67,17 @@ jobs:
           sudo unsquashfs -no-progress -d /tmp/re15/donor-root /tmp/re15/donor.sqfs >/dev/null
           sudo chown -R "$(id -u):$(id -g)" /tmp/re15/donor-root
 
+      - name: Audit exact donor LuCI language lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '--- donor /etc/config/luci languages section ---'
+          sed -n '/^[[:space:]]*config[[:space:]].*languages/,/^[[:space:]]*config[[:space:]]/p' /tmp/re15/donor-root/etc/config/luci || true
+          echo '--- donor luci.languages writers ---'
+          grep -RIn --include='*' 'luci\.languages' /tmp/re15/donor-root/etc /tmp/re15/donor-root/usr 2>/dev/null || true
+          echo '--- donor i18n files ---'
+          find /tmp/re15/donor-root/usr/lib/lua/luci/i18n -maxdepth 1 -type f -printf '%f\n' 2>/dev/null | sort || true
+
       - name: Acquire exact physically boot-proven WIP03 RADIOFIX
         env:
           GH_TOKEN: ${{ github.token }}
