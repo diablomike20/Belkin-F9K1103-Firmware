@@ -100,7 +100,7 @@ for rel in etc/init.d etc/config; do
     fi
 done
 
-# Candidate-15R2 exposed a Cudy LuCI packaging contract mismatch; Candidate-15R7 fixes it:
+# Candidate-15R2 exposed a Cudy LuCI packaging contract mismatch; Candidate-15R8 fixes it:
 # /etc/config/luci is intentionally empty in both target and donor ROM images.
 # The WR1200E donor populates luci.languages on first boot through its exact
 # luci-i18n-* /etc/uci-defaults scripts.  Importing donor uci-defaults wholesale
@@ -213,7 +213,7 @@ grep -q 'util.shellsqescape' "$WORK/stage/usr/lib/lua/mcore.lua"
 grep -q 'shellquote(ifn)' "$WORK/stage/usr/lib/lua/mcore.lua"
 grep -q 'shellquote(w.ifname)' "$WORK/stage/usr/lib/lua/mcore.lua"
 
-# Candidate-15R7 restores the Cudy firstboot password state machine while
+# Candidate-15R8 restores the Cudy firstboot password state machine while
 # retaining the target's native LEDE password database.  Install only the
 # audited compatibility dispatcher/JS; do not import donor auth binaries or
 # the donor hardware-bound default-password generator.
@@ -262,7 +262,7 @@ PY
 grep -A32 -E "^config[[:space:]]+internal[[:space:]]+['\"]?sauth['\"]?" \
     "$WORK/stage/etc/config/luci" | grep -qE "^[[:space:]]+option[[:space:]]+defpasswd[[:space:]]+'1'"
 
-# Candidate-15R7 unifies the exact-runtime-proven dashboard/XHR repair from
+# Candidate-15R8 unifies the exact-runtime-proven dashboard/XHR repair from
 # the C15R5-dashboard branch with the C15R6 firstboot-auth lifecycle.
 # On target LEDE 17 the Cudy carousel statistic templates must read iface
 # through formvalue(), not formvaluex(), otherwise dashboard bandwidth XHRs
@@ -293,7 +293,7 @@ install -m 0755 "$RADIO_ENABLE"     "$WORK/stage/etc/uci-defaults/96zz-f9k1103-e
 
 # Candidate identity. Keep physical board identity in UCI; this is only the
 # visible firmware version string.
-printf '%s\n' '2.4.25-F9K1103-Cudy-C15R7' > "$WORK/stage/etc/rom_version"
+printf '%s\n' '2.4.25-F9K1103-Cudy-C15R8' > "$WORK/stage/etc/rom_version"
 
 # TR-069/CWMP stays permanently excluded from this project.
 rm -f     "$WORK/stage/usr/lib/lua/luci/controller/cwmp.lua"     "$WORK/stage/usr/lib/lua/luci/model/cbi/cwmp.lua"     "$WORK/stage/etc/init.d/cwmp"     "$WORK/stage/usr/bin/cwmp"     "$WORK/stage/usr/sbin/cwmp"
@@ -350,10 +350,19 @@ grep -Raq 'Cudy' "$WORK/stage/usr/lib/lua/luci/view" "$WORK/stage/www" || {
 mksquashfs "$WORK/stage" "$WORK/rootfs-new.squashfs" \
     -comp xz -b 262144 -all-root -noappend -no-progress >/dev/null
 
-IMAGE="$OUT/RE-F9K1103-CUDY-WR1200E-CANDIDATE-15R7-BOOTFIRST-sysupgrade.bin"
-cat "$WORK/base/kernel.bin" "$WORK/rootfs-new.squashfs" "$WORK/base/fwtool-meta.bin" > "$IMAGE"
+IMAGE="$OUT/RE-F9K1103-CUDY-WR1200E-CANDIDATE-15R8-BOOTFIRST-sysupgrade.bin"
 
-python3 "$REPACK" validate "$IMAGE" "$OUT/RE-STATIC-VALIDATION.txt"
+# Reproduce the exact LEDE 17.01.5 F9K1103 squashfs sysupgrade tail:
+# kernel + squashfs -> 64 KiB 0xff padding -> DEADC0DE -> fwtool metadata.
+# The previous Candidate repack path concatenated fwtool metadata directly
+# after SquashFS, contaminating rootfs_data and preventing JFFS2 firstboot.
+python3 "$REPACK" assemble-padded \
+    "$WORK/base/kernel.bin" \
+    "$WORK/rootfs-new.squashfs" \
+    "$WORK/base/fwtool-meta.bin" \
+    "$IMAGE"
+
+python3 "$REPACK" validate-padded "$IMAGE" "$OUT/RE-STATIC-VALIDATION.txt"
 python3 "$REPACK" extract-rootfs "$IMAGE" "$WORK/final-rootfs.squashfs"
 sudo unsquashfs -no-progress -d "$WORK/final-root" "$WORK/final-rootfs.squashfs" >/dev/null
 sudo chown -R "$(id -u):$(id -g)" "$WORK/final-root"
@@ -377,7 +386,7 @@ for d in dev proc sys tmp overlay rom; do
 done
 test -x "$WORK/final-root/etc/uci-defaults/96zz-f9k1103-enable-radios"
 grep -q "wireless.\$r.disabled='0'" "$RADIO_ENABLE" 2>/dev/null || true
-grep -q '2.4.25-F9K1103-Cudy-C15R7' "$WORK/final-root/etc/rom_version"
+grep -q '2.4.25-F9K1103-Cudy-C15R8' "$WORK/final-root/etc/rom_version"
 grep -q 'util.shellsqescape' "$WORK/final-root/usr/lib/lua/mcore.lua"
 grep -q 'shellquote(ifn)' "$WORK/final-root/usr/lib/lua/mcore.lua"
 grep -q 'shellquote(w.ifname)' "$WORK/final-root/usr/lib/lua/mcore.lua"
@@ -430,6 +439,8 @@ grep -A64 -E "^config[[:space:]]+internal[[:space:]]+['\"]?languages['\"]?" \
     echo 'RUNTIME_ADAPTER_DEFPASSWD_WRITE=NO'
     echo 'DASHBOARD_IFACE_FORMVALUE=LEDE17_COMPAT'
     echo 'UNIFIED_FROM=C15R6_AUTH_PLUS_C15R5_DASHBOARD'
+    echo 'PAD_ROOTFS=LEDE17_64K_FF_DEADC0DE'
+    echo 'ROOTFS_DATA_PREMARKER=ERASED_FF'
     echo "IMAGE_BYTES=$(stat -c %s "$IMAGE")"
     echo "ROOTFS_SQUASHFS_BYTES=$(stat -c %s "$WORK/rootfs-new.squashfs")"
 } > "$OUT/RE-CANDIDATE-15-STATUS.txt"
@@ -438,10 +449,10 @@ cp "$WORK/base/layout.txt" "$OUT/RE-BASE-LAYOUT.txt"
 
 (
     cd "$OUT"
-    sha256sum "RE-F9K1103-CUDY-WR1200E-CANDIDATE-15R7-BOOTFIRST-sysupgrade.bin"         > RE-CANDIDATE-15R7-IMAGE-SHA256.txt
+    sha256sum "RE-F9K1103-CUDY-WR1200E-CANDIDATE-15R8-BOOTFIRST-sysupgrade.bin"         > RE-CANDIDATE-15R8-IMAGE-SHA256.txt
     find . -maxdepth 1 -type f -name 'RE-*' ! -name 'RE-SHA256SUMS.txt' -print0         | sort -z | xargs -0 sha256sum > RE-SHA256SUMS.txt
     sha256sum -c RE-SHA256SUMS.txt
 )
 
-echo "Candidate-15R7 built: $IMAGE"
+echo "Candidate-15R8 built: $IMAGE"
 echo "Static build only. Physical flash remains a separate explicit gate."
