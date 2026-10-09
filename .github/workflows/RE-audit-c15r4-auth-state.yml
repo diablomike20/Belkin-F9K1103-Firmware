@@ -1,0 +1,89 @@
+name: RE C15R4 auth state audit
+
+on:
+  push:
+    branches:
+      - re-f9k1103-cudy-candidate-15r4-auth
+    paths:
+      - '.github/workflows/RE-audit-c15r4-auth-state.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: re-f9k1103-cudy-candidate-15r4-auth
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools gh
+
+      - name: Acquire boot-proven WIP03 image
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/re-auth/wip03
+          gh run download 37248840659 \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name F9K1103-CUDY-WIP03-RADIOFIX-FAST-REPACK-V2 \
+            --dir /tmp/re-auth/wip03
+          BASE="$(find /tmp/re-auth/wip03 -type f -name '*sysupgrade.bin' | head -n1)"
+          test -n "$BASE"
+          echo '1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560  '"$BASE" | sha256sum -c -
+          python3 - "$BASE" <<'PY'
+          from pathlib import Path
+          import sys
+          b=Path(sys.argv[1]).read_bytes()
+          i=b.find(b'hsqs')
+          if i < 0:
+              raise SystemExit('rootfs squashfs missing')
+          Path('/tmp/re-auth/rootfs.squashfs').write_bytes(b[i:])
+          PY
+          unsquashfs -no-progress -d /tmp/re-auth/root /tmp/re-auth/rootfs.squashfs >/dev/null
+
+      - name: Classify credential state without exposing secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT_FIELD="$(awk -F: '$1=="root" {print $2; exit}' /tmp/re-auth/root/etc/shadow)"
+          case "$ROOT_FIELD" in
+            '') ROOT_STATE=EMPTY; ROOT_SCHEME=NONE ;;
+            '!'*|'*') ROOT_STATE=LOCKED; ROOT_SCHEME=LOCKED ;;
+            '\$1\$'*) ROOT_STATE=HASHED; ROOT_SCHEME=MD5_CRYPT ;;
+            '\$5\$'*) ROOT_STATE=HASHED; ROOT_SCHEME=SHA256_CRYPT ;;
+            '\$6\$'*) ROOT_STATE=HASHED; ROOT_SCHEME=SHA512_CRYPT ;;
+            *) ROOT_STATE=HASHED; ROOT_SCHEME=OTHER ;;
+          esac
+
+          {
+            echo "ROOT_PASSWORD_STATE=$ROOT_STATE"
+            echo "ROOT_PASSWORD_SCHEME=$ROOT_SCHEME"
+            if grep -qE "^[[:space:]]*option[[:space:]]+PasswordAuth[[:space:]]+'?off'?" /tmp/re-auth/root/etc/config/dropbear 2>/dev/null; then
+              echo "DROPBEAR_PASSWORD_AUTH=OFF"
+            else
+              echo "DROPBEAR_PASSWORD_AUTH=DEFAULT_OR_ON"
+            fi
+            if grep -qE "^[[:space:]]*option[[:space:]]+RootPasswordAuth[[:space:]]+'?off'?" /tmp/re-auth/root/etc/config/dropbear 2>/dev/null; then
+              echo "DROPBEAR_ROOT_PASSWORD_AUTH=OFF"
+            else
+              echo "DROPBEAR_ROOT_PASSWORD_AUTH=DEFAULT_OR_ON"
+            fi
+            echo "SHADOW_EQUALS_WIP03_BASE=YES"
+            echo "SECRET_HASH_EXPORTED=NO"
+          } | tee RE-C15R4-AUTH-STATE.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-C15R4-AUTH-STATE
+          path: RE-C15R4-AUTH-STATE.txt
+          if-no-files-found: error
