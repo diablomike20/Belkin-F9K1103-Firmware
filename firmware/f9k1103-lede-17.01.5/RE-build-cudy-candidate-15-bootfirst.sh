@@ -305,7 +305,7 @@ grep -A64 -E "^config[[:space:]]+internal[[:space:]]+['\"]?languages['\"]?" \
     "$WORK/final-root/etc/config/luci" | grep -qE "^[[:space:]]+option[[:space:]]+en[[:space:]]+"
 
 {
-    echo 'STATUS=STATIC_CANDIDATE_15R3_BOOTFIRST'
+    echo 'STATUS=STATIC_CANDIDATE_15R4_BOOTFIRST'
     echo 'FLASH_AUTHORIZATION=NO'
     echo 'BASE=WIP03_RADIOFIX_PHYSICAL_BOOT_PASS'
     echo 'BASE_SHA256=1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560'
