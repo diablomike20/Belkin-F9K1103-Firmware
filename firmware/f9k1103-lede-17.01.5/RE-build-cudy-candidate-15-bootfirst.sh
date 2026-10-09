@@ -93,59 +93,73 @@ for rel in etc/init.d etc/config; do
 done
 
 # Candidate-15R2 exposed a Cudy LuCI packaging contract mismatch; Candidate-15R3 fixes it:
-# the target /etc/config/luci intentionally survived the add-only donor merge,
-# but its "config internal languages" section was empty.  The exact Cudy
-# bootstrap sysauth template assumes conf.languages[current_lang] is a string
-# and calls string.find() on it.  Preserve every target LuCI setting except
-# replace ONLY the languages section with the exact donor section.
-python3 - "$DONOR_ROOT/etc/config/luci" "$WORK/stage/etc/config/luci" <<'PY'
+# /etc/config/luci is intentionally empty in both target and donor ROM images.
+# The WR1200E donor populates luci.languages on first boot through its exact
+# luci-i18n-* /etc/uci-defaults scripts.  Importing donor uci-defaults wholesale
+# is forbidden for this port, so reproduce ONLY the resulting language map in
+# the staged target config.
+python3 - "$DONOR_ROOT/etc/uci-defaults" "$WORK/stage/etc/config/luci" <<'PY'
 from pathlib import Path
 import re
 import sys
 
-donor = Path(sys.argv[1])
+defaults = Path(sys.argv[1])
 target = Path(sys.argv[2])
 
-if not donor.is_file():
-    raise SystemExit("ERROR: donor /etc/config/luci missing")
+if not defaults.is_dir():
+    raise SystemExit("ERROR: donor /etc/uci-defaults missing")
 if not target.is_file():
     raise SystemExit("ERROR: target /etc/config/luci missing")
 
-def split_sections(text):
-    lines = text.splitlines(True)
-    sections = []
-    cur = []
-    for line in lines:
-        if re.match(r'^\s*config\s+', line) and cur:
-            sections.append(cur)
-            cur = []
-        cur.append(line)
-    if cur:
+rx = re.compile(
+    r"""^\s*uci\s+set\s+luci\.languages\.([A-Za-z0-9_]+)=['"](.+?)['"];\s*uci\s+commit\s+luci\s*$"""
+)
+mapping = {}
+sources = []
+
+for p in sorted(defaults.glob("luci-i18n-*")):
+    text = p.read_text(errors="strict")
+    for line in text.splitlines():
+        m = rx.match(line)
+        if m:
+            code, title = m.groups()
+            mapping[code] = title
+            sources.append(p.name)
+
+if not mapping:
+    raise SystemExit("ERROR: donor LuCI i18n uci-default writers missing")
+if mapping.get("en") != "English":
+    raise SystemExit("ERROR: donor English LuCI language mapping missing")
+
+text = target.read_text(errors="strict")
+lines = text.splitlines(True)
+sections = []
+cur = []
+for line in lines:
+    if re.match(r'^\s*config\s+', line) and cur:
         sections.append(cur)
-    return sections
+        cur = []
+    cur.append(line)
+if cur:
+    sections.append(cur)
 
 def is_languages(sec):
     head = next((ln for ln in sec if ln.strip()), "")
     return bool(re.match(r"^\s*config\s+internal\s+['\"]?languages['\"]?\s*$", head.strip()))
 
-donor_sections = split_sections(donor.read_text(errors="strict"))
-target_sections = split_sections(target.read_text(errors="strict"))
-
-donor_lang = next((sec for sec in donor_sections if is_languages(sec)), None)
-if donor_lang is None:
-    raise SystemExit("ERROR: donor LuCI languages section missing")
-
-options = [ln for ln in donor_lang if re.match(r'^\s*(option|list)\s+', ln)]
-if not options:
-    raise SystemExit("ERROR: donor LuCI languages section is empty")
+replacement = ["config internal languages\n"]
+for code in sorted(mapping):
+    title = mapping[code].replace("\\", "\\\\").replace("'", "\\'")
+    replacement.append(f"\toption {code} '{title}'\n")
+replacement.append("\n")
 
 out = []
 replaced = False
-for sec in target_sections:
+for sec in sections:
     if is_languages(sec):
         if replaced:
             raise SystemExit("ERROR: duplicate target LuCI languages section")
-        out.append(donor_lang)
+        out.append(replacement)
         replaced = True
     else:
         out.append(sec)
@@ -154,14 +168,13 @@ if not replaced:
     raise SystemExit("ERROR: target LuCI languages section missing")
 
 target.write_text("".join("".join(sec) for sec in out))
-print(f"RE_LUCI_LANGUAGE_OPTIONS={len(options)}")
+print("RE_LUCI_LANGUAGE_SOURCES=" + ",".join(sorted(set(sources))))
+print("RE_LUCI_LANGUAGE_CODES=" + ",".join(sorted(mapping)))
 PY
 
-# Hard gate the exact runtime failure we are fixing: the merged Candidate must
-# contain at least one language mapping and the common English mapping must be
-# available for the Cudy auto-language login template.
+# Hard gate the exact runtime failure we are fixing.
 grep -A64 -E "^config[[:space:]]+internal[[:space:]]+['\"]?languages['\"]?" \
-    "$WORK/stage/etc/config/luci" | grep -qE "^[[:space:]]+option[[:space:]]+en[[:space:]]+"
+    "$WORK/stage/etc/config/luci" | grep -qE "^[[:space:]]+option[[:space:]]+en[[:space:]]+'English'"
 
 # ---------------------------------------------------------------------------
 # 3. Restore the target-proven Cudy/LEDE compatibility seam.
@@ -300,7 +313,7 @@ grep -A64 -E "^config[[:space:]]+internal[[:space:]]+['\"]?languages['\"]?" \
     echo 'LAN_BASELINE=192.168.1.1_WIP03'
     echo 'EARLY_BOOT_MOUNTPOINTS=DEV_PROC_SYS_TMP_OVERLAY_ROM_PRESENT'
     echo 'SQUASHFS_OWNERSHIP=ALL_ROOT'
-    echo 'LUCI_LANGUAGE_REGISTRY=WR1200E_R62_2.4.25_DONOR'
+    echo 'LUCI_LANGUAGE_REGISTRY=WR1200E_R62_2.4.25_UCI_DEFAULTS_EFFECT'
     echo "IMAGE_BYTES=$(stat -c %s "$IMAGE")"
     echo "ROOTFS_SQUASHFS_BYTES=$(stat -c %s "$WORK/rootfs-new.squashfs")"
 } > "$OUT/RE-CANDIDATE-15-STATUS.txt"
