@@ -94,7 +94,7 @@ jobs:
           sh -n "$R"
           sh -n firmware/f9k1103-lede-17.01.5/cudy-port/RE-96zz-f9k1103-enable-radios
           grep -Fq '2.4.25-F9K1103-Cudy-C15R8' "$B"
-          grep -Fq 'STATUS=STATIC_CANDIDATE_15R7_BOOTFIRST' "$B"
+          grep -Fq 'STATUS=STATIC_CANDIDATE_15R8_BOOTFIRST' "$B"
           grep -Fq 'DASHBOARD_IFACE_FORMVALUE=LEDE17_COMPAT' "$B"
           grep -Fq 'UNIFIED_FROM=C15R6_AUTH_PLUS_C15R5_DASHBOARD' "$B"
           grep -Fq 'assemble-padded' "$B"
@@ -123,7 +123,7 @@ jobs:
           IMG="$O/RE-F9K1103-CUDY-WR1200E-CANDIDATE-15R8-BOOTFIRST-sysupgrade.bin"
           test -s "$IMG"
           grep -Fxq 'VALIDATION=PASS' "$O/RE-STATIC-VALIDATION.txt"
-          grep -Fxq 'STATUS=STATIC_CANDIDATE_15R7_BOOTFIRST' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -Fxq 'STATUS=STATIC_CANDIDATE_15R8_BOOTFIRST' "$O/RE-CANDIDATE-15-STATUS.txt"
           grep -Fxq 'FLASH_AUTHORIZATION=NO' "$O/RE-CANDIDATE-15-STATUS.txt"
           grep -Fxq 'BASE=WIP03_RADIOFIX_PHYSICAL_BOOT_PASS' "$O/RE-CANDIDATE-15-STATUS.txt"
           grep -Fxq 'TARGET_BIN_SBIN_LIB=BYTE_IDENTICAL_WIP03' "$O/RE-CANDIDATE-15-STATUS.txt"
