@@ -27,6 +27,7 @@ RADIO_ENABLE="$SELF_DIR/cudy-port/RE-96zz-f9k1103-enable-radios"
 MCORE_COMPAT="$SELF_DIR/cudy-port/mcore.lua"
 DISPATCHER_COMPAT="$SELF_DIR/cudy-port/dispatcher-lede-cudy.lua"
 SYSAUTH_COMPAT="$SELF_DIR/cudy-port/sysauth-lede-cudy.js"
+RUNTIME_COMPAT="$SELF_DIR/cudy-port/95-f9k1103-cudy-runtime"
 
 test -d "$DONOR_ROOT"
 test -s "$BASE_IMG"
@@ -35,6 +36,7 @@ test -f "$RADIO_ENABLE"
 test -f "$MCORE_COMPAT"
 test -f "$DISPATCHER_COMPAT"
 test -f "$SYSAUTH_COMPAT"
+test -f "$RUNTIME_COMPAT"
 
 WORK="${TMPDIR:-/tmp}/re-cudy-candidate-15"
 rm -rf "$WORK" "$OUT"
@@ -217,9 +219,13 @@ grep -q 'shellquote(w.ifname)' "$WORK/stage/usr/lib/lua/mcore.lua"
 # the donor hardware-bound default-password generator.
 install -m 0644 "$DISPATCHER_COMPAT" "$WORK/stage/usr/lib/lua/luci/dispatcher.lua"
 install -m 0644 "$SYSAUTH_COMPAT" "$WORK/stage/www/luci-static/bootstrap/js/sysauth.js"
+install -m 0755 "$RUNTIME_COMPAT" "$WORK/stage/etc/uci-defaults/95-f9k1103-cudy-runtime"
 grep -q 'sys.user.setpasswd("root", pass)' "$WORK/stage/usr/lib/lua/luci/dispatcher.lua"
 grep -q 'conf.sauth.defpasswd == "1"' "$WORK/stage/usr/lib/lua/luci/dispatcher.lua"
 grep -q 'pwd.value.length < 8' "$WORK/stage/www/luci-static/bootstrap/js/sysauth.js"
+grep -q 'root_pw=.*awk -F:' "$WORK/stage/etc/uci-defaults/95-f9k1103-cudy-runtime"
+grep -q "uci set luci.sauth.defpasswd='1'" "$WORK/stage/etc/uci-defaults/95-f9k1103-cudy-runtime"
+grep -q "uci set luci.sauth.defpasswd='0'" "$WORK/stage/etc/uci-defaults/95-f9k1103-cudy-runtime"
 
 # Mark an unprovisioned ROM image for the Cudy Create administrator password
 # view.  This is persistent UCI state: a successful first password creation
@@ -355,6 +361,9 @@ grep -q 'shellquote(w.ifname)' "$WORK/final-root/usr/lib/lua/mcore.lua"
 grep -q 'sys.user.setpasswd("root", pass)' "$WORK/final-root/usr/lib/lua/luci/dispatcher.lua"
 grep -q 'conf.sauth.defpasswd == "1"' "$WORK/final-root/usr/lib/lua/luci/dispatcher.lua"
 grep -q 'pwd.value.length < 8' "$WORK/final-root/www/luci-static/bootstrap/js/sysauth.js"
+grep -q 'root_pw=.*awk -F:' "$WORK/final-root/etc/uci-defaults/95-f9k1103-cudy-runtime"
+grep -q "uci set luci.sauth.defpasswd='1'" "$WORK/final-root/etc/uci-defaults/95-f9k1103-cudy-runtime"
+grep -q "uci set luci.sauth.defpasswd='0'" "$WORK/final-root/etc/uci-defaults/95-f9k1103-cudy-runtime"
 grep -A32 -E "^config[[:space:]]+internal[[:space:]]+['\"]?sauth['\"]?" \
     "$WORK/final-root/etc/config/luci" | grep -qE "^[[:space:]]+option[[:space:]]+defpasswd[[:space:]]+'1'"
 grep -A64 -E "^config[[:space:]]+internal[[:space:]]+['\"]?languages['\"]?" \
@@ -389,6 +398,7 @@ grep -A64 -E "^config[[:space:]]+internal[[:space:]]+['\"]?languages['\"]?" \
     echo 'FIRSTBOOT_AUTH=CUDY_DEFPASSWD_NATIVE_LEDE_ROOT'
     echo 'FIRSTBOOT_PASSWORD_MIN=8'
     echo 'CUDY_HW_DEFAULT_PASSWORD=NOT_IMPORTED'
+    echo 'FIRSTBOOT_RUNTIME_STATE=ROOT_SHADOW_DRIVEN'
     echo "IMAGE_BYTES=$(stat -c %s "$IMAGE")"
     echo "ROOTFS_SQUASHFS_BYTES=$(stat -c %s "$WORK/rootfs-new.squashfs")"
 } > "$OUT/RE-CANDIDATE-15-STATUS.txt"
