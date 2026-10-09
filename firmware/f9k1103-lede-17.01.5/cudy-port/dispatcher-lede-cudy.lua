@@ -105,6 +105,40 @@ function authenticator.htmlauth(validator, accs, default, template)
 	local user = http.formvalue("luci_username")
 	local pass = http.formvalue("luci_password")
 	local checkuser = (user == "admin") and "root" or user
+	local conf = require "luci.config"
+
+	-- Cudy firstboot semantics adapted to the native LEDE password database.
+	-- The stock vendor dispatcher has a defpasswd branch which turns the first
+	-- submitted administrator password into persistent auth state, then clears
+	-- defpasswd.  On F9K1103 we deliberately avoid the Cudy hardware-bound
+	-- fuuid+hmac default password and instead set the native root password.
+	if conf.sauth and conf.sauth.defpasswd == "1" and checkuser == "root" then
+		local pwh = sys.user.getpasswd("root")
+
+		-- A stale firstboot flag must never overwrite an already provisioned
+		-- password.  Clear the flag and fall through to normal verification.
+		if pwh then
+			local cur = require("luci.model.uci").cursor()
+			cur:set("luci", "sauth", "defpasswd", "0")
+			cur:commit("luci")
+		else
+			if type(pass) == "string" and #pass >= 8 and #pass <= 64 then
+				if sys.user.setpasswd("root", pass) == 0 then
+					local cur = require("luci.model.uci").cursor()
+					cur:set("luci", "sauth", "defpasswd", "0")
+					cur:commit("luci")
+					return user
+				end
+			end
+
+			require("luci.i18n")
+			require("luci.template")
+			context.path = {}
+			http.status(403, "Forbidden")
+			luci.template.render(template or "sysauth", {duser=default, fuser=user})
+			return false
+		end
+	end
 
 	if user and validator(checkuser, pass) then
 		return user
