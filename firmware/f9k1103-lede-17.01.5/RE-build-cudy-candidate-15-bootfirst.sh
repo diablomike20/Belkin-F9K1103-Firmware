@@ -26,6 +26,8 @@ REPACK="$REPO_ROOT/tools/repack-f9k1103-wip03.py"
 RADIO_ENABLE="$SELF_DIR/cudy-port/RE-96zz-f9k1103-enable-radios"
 AUTH_JS="$SELF_DIR/cudy-port/sysauth-lede-cudy.js"
 MCORE_COMPAT="$SELF_DIR/cudy-port/mcore.lua"
+DISPATCHER_COMPAT="$SELF_DIR/cudy-port/dispatcher-lede-cudy.lua"
+AUTH_FIRSTBOOT="$SELF_DIR/cudy-port/RE-97zz-f9k1103-cudy-auth-firstboot"
 
 test -d "$DONOR_ROOT"
 test -s "$BASE_IMG"
@@ -33,6 +35,8 @@ test -f "$REPACK"
 test -f "$RADIO_ENABLE"
 test -f "$AUTH_JS"
 test -f "$MCORE_COMPAT"
+test -f "$DISPATCHER_COMPAT"
+test -f "$AUTH_FIRSTBOOT"
 
 WORK="${TMPDIR:-/tmp}/re-cudy-candidate-15"
 rm -rf "$WORK" "$OUT"
@@ -96,7 +100,7 @@ for rel in etc/init.d etc/config; do
     fi
 done
 
-# Candidate-15R2 exposed a Cudy LuCI packaging contract mismatch; Candidate-15R4 fixes it:
+# Candidate-15R2 exposed a Cudy LuCI packaging contract mismatch; Candidate-15R5 fixes it:
 # /etc/config/luci is intentionally empty in both target and donor ROM images.
 # The WR1200E donor populates luci.languages on first boot through its exact
 # luci-i18n-* /etc/uci-defaults scripts.  Importing donor uci-defaults wholesale
@@ -219,13 +223,27 @@ grep -q 'util.shellsqescape' "$WORK/stage/usr/lib/lua/mcore.lua"
 grep -q 'shellquote(ifn)' "$WORK/stage/usr/lib/lua/mcore.lua"
 grep -q 'shellquote(w.ifname)' "$WORK/stage/usr/lib/lua/mcore.lua"
 
+# Candidate-15R5 replaces only the LuCI dispatcher auth seam with a
+# target-version-aware firstboot provisioning path.  Normal logins still use
+# LEDE's native sys.user.checkpasswd verifier.
+install -m 0644 "$DISPATCHER_COMPAT" "$WORK/stage/usr/lib/lua/luci/dispatcher.lua"
+grep -q 'conf.sauth.defpasswd == "1"' "$WORK/stage/usr/lib/lua/luci/dispatcher.lua"
+grep -q 'sys.user.setpasswd("root", pass)' "$WORK/stage/usr/lib/lua/luci/dispatcher.lua"
+grep -q '#pass >= 8' "$WORK/stage/usr/lib/lua/luci/dispatcher.lua"
+
+# Protect the initially empty WIP03 root account before browser provisioning.
+# This script generates a random temporary credential and never exports it.
+install -m 0755 "$AUTH_FIRSTBOOT"     "$WORK/stage/etc/uci-defaults/97zz-f9k1103-cudy-auth-firstboot"
+grep -q '/proc/sys/kernel/random/uuid'     "$WORK/stage/etc/uci-defaults/97zz-f9k1103-cudy-auth-firstboot"
+grep -q "luci.sauth.defpasswd='1'"     "$WORK/stage/etc/uci-defaults/97zz-f9k1103-cudy-auth-firstboot"
+
 # Enable both physically verified radios only after the existing WIP03 mapping
 # adapter has run.
 install -m 0755 "$RADIO_ENABLE"     "$WORK/stage/etc/uci-defaults/96zz-f9k1103-enable-radios"
 
 # Candidate identity. Keep physical board identity in UCI; this is only the
 # visible firmware version string.
-printf '%s\n' '2.4.25-F9K1103-Cudy-C15R4' > "$WORK/stage/etc/rom_version"
+printf '%s\n' '2.4.25-F9K1103-Cudy-C15R5' > "$WORK/stage/etc/rom_version"
 
 # TR-069/CWMP stays permanently excluded from this project.
 rm -f     "$WORK/stage/usr/lib/lua/luci/controller/cwmp.lua"     "$WORK/stage/usr/lib/lua/luci/model/cbi/cwmp.lua"     "$WORK/stage/etc/init.d/cwmp"     "$WORK/stage/usr/bin/cwmp"     "$WORK/stage/usr/sbin/cwmp"
@@ -282,7 +300,7 @@ grep -Raq 'Cudy' "$WORK/stage/usr/lib/lua/luci/view" "$WORK/stage/www" || {
 mksquashfs "$WORK/stage" "$WORK/rootfs-new.squashfs" \
     -comp xz -b 262144 -all-root -noappend -no-progress >/dev/null
 
-IMAGE="$OUT/RE-F9K1103-CUDY-WR1200E-CANDIDATE-15R4-BOOTFIRST-sysupgrade.bin"
+IMAGE="$OUT/RE-F9K1103-CUDY-WR1200E-CANDIDATE-15R5-BOOTFIRST-sysupgrade.bin"
 cat "$WORK/base/kernel.bin" "$WORK/rootfs-new.squashfs" "$WORK/base/fwtool-meta.bin" > "$IMAGE"
 
 python3 "$REPACK" validate "$IMAGE" "$OUT/RE-STATIC-VALIDATION.txt"
@@ -309,12 +327,16 @@ for d in dev proc sys tmp overlay rom; do
 done
 test -x "$WORK/final-root/etc/uci-defaults/96zz-f9k1103-enable-radios"
 grep -q "wireless.\$r.disabled='0'" "$RADIO_ENABLE" 2>/dev/null || true
-grep -q '2.4.25-F9K1103-Cudy-C15R4' "$WORK/final-root/etc/rom_version"
+grep -q '2.4.25-F9K1103-Cudy-C15R5' "$WORK/final-root/etc/rom_version"
 grep -q "#luci_password_login, #luci_password2"     "$WORK/final-root/www/luci-static/bootstrap/js/sysauth.js"
 ! grep -q '/admin/get_token'     "$WORK/final-root/www/luci-static/bootstrap/js/sysauth.js"
 grep -q 'util.shellsqescape' "$WORK/final-root/usr/lib/lua/mcore.lua"
 grep -q 'shellquote(ifn)' "$WORK/final-root/usr/lib/lua/mcore.lua"
 grep -q 'shellquote(w.ifname)' "$WORK/final-root/usr/lib/lua/mcore.lua"
+grep -q 'conf.sauth.defpasswd == "1"' "$WORK/final-root/usr/lib/lua/luci/dispatcher.lua"
+grep -q 'sys.user.setpasswd("root", pass)' "$WORK/final-root/usr/lib/lua/luci/dispatcher.lua"
+test -x "$WORK/final-root/etc/uci-defaults/97zz-f9k1103-cudy-auth-firstboot"
+grep -q "pwd.value.length < 8" "$WORK/final-root/www/luci-static/bootstrap/js/sysauth.js"
 grep -A64 -E "^config[[:space:]]+internal[[:space:]]+['\"]?languages['\"]?" \
     "$WORK/final-root/etc/config/luci" | grep -qE "^[[:space:]]+option[[:space:]]+en[[:space:]]+"
 
@@ -328,7 +350,7 @@ grep -A64 -E "^config[[:space:]]+internal[[:space:]]+['\"]?languages['\"]?" \
     echo 'TARGET_RC_D=BYTE_IDENTICAL_WIP03'
     echo 'TARGET_HOTPLUG=BYTE_IDENTICAL_WIP03'
     echo 'TARGET_NETWORK_WIRELESS_FIREWALL_DHCP=BYTE_IDENTICAL_WIP03'
-    echo 'TARGET_AUTH_SEAM=WIP03_PROVEN'
+    echo 'TARGET_AUTH_SEAM=F9K1103_C15R5_FIRSTBOOT_COMPAT'
     echo 'CUDY_LUCI_WWW=WR1200E_R62_2.4.25'
     echo 'CUDY_HELPERS=ADD_ONLY_NO_TARGET_REPLACEMENT'
     echo 'DONOR_RC_D_IMPORTED=NO'
@@ -345,6 +367,9 @@ grep -A64 -E "^config[[:space:]]+internal[[:space:]]+['\"]?languages['\"]?" \
     echo 'LUCI_LANGUAGE_REGISTRY=WR1200E_R62_2.4.25_UCI_DEFAULTS_EFFECT'
     echo 'LUCI_SYSAUTH_JS=LEDE_NATIVE_AUTH_SELECTOR_COMPAT'
     echo 'MCORE_SHELL_QUOTING=LEDE17_SHELLSQESCAPE'
+    echo 'AUTH_FIRSTBOOT=RANDOM_TEMPORARY_ROOT_PLUS_ONE_SHOT_CREATE_PASSWORD'
+    echo 'AUTH_CREATE_PASSWORD_LENGTH=8_64'
+    echo 'AUTH_TRANSPORT=LEDE_NATIVE_PASSWORD_VERIFIER'
     echo "IMAGE_BYTES=$(stat -c %s "$IMAGE")"
     echo "ROOTFS_SQUASHFS_BYTES=$(stat -c %s "$WORK/rootfs-new.squashfs")"
 } > "$OUT/RE-CANDIDATE-15-STATUS.txt"
@@ -353,10 +378,10 @@ cp "$WORK/base/layout.txt" "$OUT/RE-BASE-LAYOUT.txt"
 
 (
     cd "$OUT"
-    sha256sum "RE-F9K1103-CUDY-WR1200E-CANDIDATE-15R4-BOOTFIRST-sysupgrade.bin"         > RE-CANDIDATE-15R4-IMAGE-SHA256.txt
+    sha256sum "RE-F9K1103-CUDY-WR1200E-CANDIDATE-15R5-BOOTFIRST-sysupgrade.bin"         > RE-CANDIDATE-15R5-IMAGE-SHA256.txt
     find . -maxdepth 1 -type f -name 'RE-*' ! -name 'RE-SHA256SUMS.txt' -print0         | sort -z | xargs -0 sha256sum > RE-SHA256SUMS.txt
     sha256sum -c RE-SHA256SUMS.txt
 )
 
-echo "Candidate-15R4 built: $IMAGE"
+echo "Candidate-15R5 built: $IMAGE"
 echo "Static build only. Physical flash remains a separate explicit gate."
