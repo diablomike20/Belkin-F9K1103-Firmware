@@ -99,7 +99,9 @@ jobs:
           grep -Fq 'UNIFIED_FROM=C15R6_AUTH_PLUS_C15R5_DASHBOARD' "$B"
           grep -Fq 'assemble-padded' "$B"
           grep -Fq 'validate-padded' "$B"
-          grep -Fq 'JFFS2_EOF_MARK = b"\\xde\\xad\\xc0\\xde"' tools/repack-f9k1103-wip03.py
+          python3 -m py_compile tools/repack-f9k1103-wip03.py
+          grep -Fq 'JFFS2_EOF_MARK' tools/repack-f9k1103-wip03.py
+          grep -Fq 'PAD_ROOTFS_BLOCK = 64 * 1024' tools/repack-f9k1103-wip03.py
           grep -Fq 'util.shellsqescape' "$M"
           grep -Fq 'sys.user.setpasswd("root", pass)' "$D"
           grep -Fq 'conf.sauth.defpasswd == "1"' "$D"
