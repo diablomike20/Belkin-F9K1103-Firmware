@@ -17,7 +17,19 @@ uci set system.board.rom='F9K1103'
 # password against the existing root account and keeps session identity admin.
 uci set luci.main.sysauth='admin'
 uci set luci.main.showuser='0'
-uci set luci.sauth.defpasswd='0'
+
+# Firstboot auth state follows the actual native LEDE root credential.
+# WIP03 ships with an empty root password.  In that state the Cudy UI must
+# render "Create administrator password"; after provisioning, a persistent
+# shadow entry means subsequent boots use the normal Login flow.
+root_pw="$(awk -F: '$1 == "root" { print $2; exit }' /etc/shadow 2>/dev/null)"
+if [ -n "$root_pw" ]; then
+    uci set luci.sauth.defpasswd='0'
+else
+    uci set luci.sauth.defpasswd='1'
+fi
+unset root_pw
+
 uci -q delete luci.sauth.salt
 
 # Disable Cudy cloud planes; no vendor cloud daemon is imported.
