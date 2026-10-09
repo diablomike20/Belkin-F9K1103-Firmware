@@ -1,0 +1,96 @@
+name: RE audit Cudy auth R4
+
+on:
+  push:
+    branches:
+      - re-f9k1103-cudy-candidate-15r4-postlogin
+    paths:
+      - '.github/workflows/RE-audit-cudy-auth-r4.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: re-f9k1103-cudy-candidate-15r4-postlogin
+
+      - name: Acquire exact WR1200E donor
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://www.cudy.com/cdn/shop/files/WR1200E-R62-2.4.25-20260114-184136-flash.zip?v=12982462962593522136'
+          ZIP_SHA='2e9a8dafc930a2070d45f706ec5d362428475044dcd791232f86eee7b9f4ef21'
+          BIN_SHA='086055b0227910f9ddabbb13bfa6b06a3850105bd46a3572b76116bf5a3043fa'
+          mkdir -p /tmp/reauth
+          curl -fL --retry 3 "$URL" -o /tmp/reauth/donor.zip
+          echo "$ZIP_SHA  /tmp/reauth/donor.zip" | sha256sum -c -
+          unzip -q /tmp/reauth/donor.zip -d /tmp/reauth/unzip
+          BIN="$(find /tmp/reauth/unzip -type f -name '*.bin' | head -n1)"
+          echo "$BIN_SHA  $BIN" | sha256sum -c -
+          python3 - "$BIN" <<'PY'
+          from pathlib import Path
+          import sys
+          b=Path(sys.argv[1]).read_bytes()
+          i=b.find(b'hsqs')
+          if i < 0: raise SystemExit('squashfs missing')
+          Path('/tmp/reauth/root.sqfs').write_bytes(b[i:])
+          PY
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y squashfs-tools >/dev/null
+          sudo unsquashfs -no-progress -d /tmp/reauth/root /tmp/reauth/root.sqfs >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" /tmp/reauth/root
+
+      - name: Dump auth lifecycle evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=/tmp/reauth/root
+          O=RE-CUDY-AUTH-R4-AUDIT
+          mkdir -p "$O"
+
+          {
+            echo '===== defpasswd / password writers ====='
+            grep -RInE 'defpasswd|setpasswd|passwd|luci_password|sysauth|salt|get_token' \
+              "$R/etc/uci-defaults" "$R/usr/lib/lua/luci" "$R/www/luci-static/bootstrap/js" 2>/dev/null || true
+          } > "$O/RE-AUTH-GREP.txt"
+
+          for rel in \
+            etc/uci-defaults/10_user \
+            etc/uci-defaults/11_fix_passwd \
+            etc/uci-defaults/40_luci-business \
+            etc/config/luci \
+            usr/lib/lua/luci/dispatcher.lua \
+            usr/lib/lua/luci/sys.lua \
+            usr/lib/lua/luci/view/themes/bootstrap/sysauth.htm \
+            www/luci-static/bootstrap/js/sysauth.js
+          do
+            src="$R/$rel"
+            dst="$O/RE-$(echo "$rel" | tr '/' '_').txt"
+            if [ -e "$src" ]; then
+              {
+                echo "PATH=$rel"
+                ls -l "$src"
+                sha256sum "$src"
+                echo '----- CONTENT -----'
+                cat "$src"
+              } > "$dst"
+            fi
+          done
+
+          (
+            cd "$O"
+            sha256sum RE-* > RE-SHA256SUMS.txt
+          )
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-CUDY-AUTH-R4-AUDIT
+          path: RE-CUDY-AUTH-R4-AUDIT/
+          if-no-files-found: error
+          compression-level: 0
