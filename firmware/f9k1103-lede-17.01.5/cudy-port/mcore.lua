@@ -9,6 +9,12 @@ local uci  = require("luci.model.uci").cursor()
 local util = require "luci.util"
 local fs   = require "nixio.fs"
 
+-- LEDE 17.01.x exposes shellsqescape(), not newer util.shellquote().
+-- Keep command arguments quoted while staying ABI-compatible with the target.
+local function shellquote(value)
+    return "'" .. util.shellsqescape(tostring(value or "")) .. "'"
+end
+
 local function norm_mac(mac)
     if not mac then return nil end
     mac = mac:gsub("-", ":"):upper()
@@ -90,7 +96,7 @@ local function wireless_interfaces()
         local ifn = line:match("^([%w%._%-]+)%s+ESSID:")
         if ifn and not seen[ifn] then
             seen[ifn] = true
-            local info = util.exec("iwinfo " .. ifn .. " info 2>/dev/null") or ""
+            local info = util.exec("iwinfo " .. shellquote(ifn) .. " info 2>/dev/null") or ""
             local freq = tonumber(info:match("(%d+%.%d+)%s+GHz"))
             local cudy_iface
             if freq then
@@ -107,7 +113,7 @@ end
 local function wifi_stations()
     local out = {}
     for _, w in ipairs(wireless_interfaces()) do
-        local text = util.exec("iwinfo " .. w.ifname .. " assoclist 2>/dev/null") or ""
+        local text = util.exec("iwinfo " .. shellquote(w.ifname) .. " assoclist 2>/dev/null") or ""
         for line in text:gmatch("[^\n]+") do
             local mac0, sig = line:match("^([0-9A-Fa-f:]+)%s+([%-0-9]+)%s+dBm")
             local mac = norm_mac(mac0)
