@@ -105,6 +105,37 @@ function authenticator.htmlauth(validator, accs, default, template)
 	local user = http.formvalue("luci_username")
 	local pass = http.formvalue("luci_password")
 	local checkuser = (user == "admin") and "root" or user
+	local conf = require "luci.config"
+
+	-- F9K1103 firstboot provisioning seam.
+	--
+	-- Cudy donor hardware derives an unknown temporary root password from
+	-- bdinfo fuuid+hmac and then lets the bootstrap UI replace it.  F9K1103
+	-- has no trustworthy Cudy fuuid/hmac identity, so Candidate-15R5 seeds a
+	-- random temporary root password at first boot and permits exactly this
+	-- one provisioning transition while luci.sauth.defpasswd == "1".
+	--
+	-- Never accept an empty/short provisioning password and never bypass
+	-- normal validation after defpasswd is cleared.
+	if user == "admin"
+	and pass
+	and conf.sauth
+	and conf.sauth.defpasswd == "1"
+	and #pass >= 8
+	and #pass <= 64
+	then
+		local existing = sys.user.getpasswd("root")
+		if existing and #existing > 0 then
+			local rc = sys.user.setpasswd("root", pass)
+			if rc == 0 then
+				local cur = uci.cursor()
+				cur:set("luci", "sauth", "defpasswd", "0")
+				cur:commit("luci")
+				conf.sauth.defpasswd = "0"
+				return user
+			end
+		end
+	end
 
 	if user and validator(checkuser, pass) then
 		return user
