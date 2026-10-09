@@ -103,7 +103,7 @@ jobs:
           grep -q -- '-all-root' firmware/f9k1103-lede-17.01.5/RE-build-cudy-candidate-15-bootfirst.sh
           grep -q 'required early-boot mount point' firmware/f9k1103-lede-17.01.5/RE-build-cudy-candidate-15-bootfirst.sh
           grep -q '2.4.25-F9K1103-Cudy-C15R3' firmware/f9k1103-lede-17.01.5/RE-build-cudy-candidate-15-bootfirst.sh
-          grep -q 'donor LuCI languages section is empty' firmware/f9k1103-lede-17.01.5/RE-build-cudy-candidate-15-bootfirst.sh
+          grep -q 'donor LuCI i18n uci-default writers missing' firmware/f9k1103-lede-17.01.5/RE-build-cudy-candidate-15-bootfirst.sh
           grep -q 'STATUS=STATIC_CANDIDATE_15R3_BOOTFIRST' firmware/f9k1103-lede-17.01.5/RE-build-cudy-candidate-15-bootfirst.sh
 
       - name: Build Candidate-15R3
@@ -137,7 +137,7 @@ jobs:
           grep -q '^RADIO1=5G_ENABLED$' "$O/RE-CANDIDATE-15-STATUS.txt"
           grep -q '^EARLY_BOOT_MOUNTPOINTS=DEV_PROC_SYS_TMP_OVERLAY_ROM_PRESENT$' "$O/RE-CANDIDATE-15-STATUS.txt"
           grep -q '^SQUASHFS_OWNERSHIP=ALL_ROOT$' "$O/RE-CANDIDATE-15-STATUS.txt"
-          grep -q '^LUCI_LANGUAGE_REGISTRY=WR1200E_R62_2.4.25_DONOR$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^LUCI_LANGUAGE_REGISTRY=WR1200E_R62_2.4.25_UCI_DEFAULTS_EFFECT$' "$O/RE-CANDIDATE-15-STATUS.txt"
 
           (cd "$O" && sha256sum -c RE-CANDIDATE-15R3-IMAGE-SHA256.txt)
 
