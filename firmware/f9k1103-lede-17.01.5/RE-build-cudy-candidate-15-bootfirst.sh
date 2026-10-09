@@ -25,12 +25,14 @@ REPO_ROOT="$(CDPATH= cd -- "$SELF_DIR/../.." && pwd)"
 REPACK="$REPO_ROOT/tools/repack-f9k1103-wip03.py"
 RADIO_ENABLE="$SELF_DIR/cudy-port/RE-96zz-f9k1103-enable-radios"
 AUTH_JS="$SELF_DIR/cudy-port/sysauth-lede-cudy.js"
+MCORE_COMPAT="$SELF_DIR/cudy-port/mcore.lua"
 
 test -d "$DONOR_ROOT"
 test -s "$BASE_IMG"
 test -f "$REPACK"
 test -f "$RADIO_ENABLE"
 test -f "$AUTH_JS"
+test -f "$MCORE_COMPAT"
 
 WORK="${TMPDIR:-/tmp}/re-cudy-candidate-15"
 rm -rf "$WORK" "$OUT"
@@ -208,6 +210,15 @@ grep -q "#luci_password_login, #luci_password2"     "$WORK/stage/www/luci-static
 ! grep -q '/admin/get_token'     "$WORK/stage/www/luci-static/bootstrap/js/sysauth.js"
 grep -q "#luci_password_login, #luci_password2"     "$WORK/stage/www/luci-static/bootstrap/js/sysauth.js"
 
+# Candidate-15R3 post-login testing exposed a LuCI ABI mismatch in the WIP03
+# mcore compatibility module: newer Cudy code expected util.shellquote(), while
+# target LEDE 17.01.x exports util.shellsqescape().  Replace only the mcore
+# adapter with the target-version-aware implementation.
+install -m 0644 "$MCORE_COMPAT" "$WORK/stage/usr/lib/lua/mcore.lua"
+grep -q 'util.shellsqescape' "$WORK/stage/usr/lib/lua/mcore.lua"
+grep -q 'shellquote(ifn)' "$WORK/stage/usr/lib/lua/mcore.lua"
+grep -q 'shellquote(w.ifname)' "$WORK/stage/usr/lib/lua/mcore.lua"
+
 # Enable both physically verified radios only after the existing WIP03 mapping
 # adapter has run.
 install -m 0755 "$RADIO_ENABLE"     "$WORK/stage/etc/uci-defaults/96zz-f9k1103-enable-radios"
@@ -301,6 +312,9 @@ grep -q "wireless.\$r.disabled='0'" "$RADIO_ENABLE" 2>/dev/null || true
 grep -q '2.4.25-F9K1103-Cudy-C15R4' "$WORK/final-root/etc/rom_version"
 grep -q "#luci_password_login, #luci_password2"     "$WORK/final-root/www/luci-static/bootstrap/js/sysauth.js"
 ! grep -q '/admin/get_token'     "$WORK/final-root/www/luci-static/bootstrap/js/sysauth.js"
+grep -q 'util.shellsqescape' "$WORK/final-root/usr/lib/lua/mcore.lua"
+grep -q 'shellquote(ifn)' "$WORK/final-root/usr/lib/lua/mcore.lua"
+grep -q 'shellquote(w.ifname)' "$WORK/final-root/usr/lib/lua/mcore.lua"
 grep -A64 -E "^config[[:space:]]+internal[[:space:]]+['\"]?languages['\"]?" \
     "$WORK/final-root/etc/config/luci" | grep -qE "^[[:space:]]+option[[:space:]]+en[[:space:]]+"
 
@@ -330,6 +344,7 @@ grep -A64 -E "^config[[:space:]]+internal[[:space:]]+['\"]?languages['\"]?" \
     echo 'SQUASHFS_OWNERSHIP=ALL_ROOT'
     echo 'LUCI_LANGUAGE_REGISTRY=WR1200E_R62_2.4.25_UCI_DEFAULTS_EFFECT'
     echo 'LUCI_SYSAUTH_JS=LEDE_NATIVE_AUTH_SELECTOR_COMPAT'
+    echo 'MCORE_SHELL_QUOTING=LEDE17_SHELLSQESCAPE'
     echo "IMAGE_BYTES=$(stat -c %s "$IMAGE")"
     echo "ROOTFS_SQUASHFS_BYTES=$(stat -c %s "$WORK/rootfs-new.squashfs")"
 } > "$OUT/RE-CANDIDATE-15-STATUS.txt"
