@@ -1,0 +1,147 @@
+name: RE Cudy Candidate 15R5 dashboard
+
+on:
+  push:
+    branches:
+      - re-f9k1103-cudy-candidate-15r5-dashboard
+    paths:
+      - '.github/workflows/RE-build-cudy-candidate-15r5-dashboard.yml'
+      - 'firmware/f9k1103-lede-17.01.5/RE-build-cudy-candidate-15-bootfirst.sh'
+      - 'firmware/f9k1103-lede-17.01.5/cudy-port/RE-96zz-f9k1103-enable-radios'
+      - 'firmware/f9k1103-lede-17.01.5/cudy-port/sysauth-lede-cudy.js'
+      - 'firmware/f9k1103-lede-17.01.5/cudy-port/mcore.lua'
+      - 'tools/repack-f9k1103-wip03.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: re-cudy-candidate15r5-dashboard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: re-f9k1103-cudy-candidate-15r5-dashboard
+
+      - name: Install image tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools unzip rsync file python3 gh
+
+      - name: Acquire exact WR1200E donor
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/re15
+          mkdir -p /tmp/re15
+          URL='https://www.cudy.com/cdn/shop/files/WR1200E-R62-2.4.25-20260114-184136-flash.zip?v=12982462962593522136'
+          ZIP_SHA='2e9a8dafc930a2070d45f706ec5d362428475044dcd791232f86eee7b9f4ef21'
+          BIN_SHA='086055b0227910f9ddabbb13bfa6b06a3850105bd46a3572b76116bf5a3043fa'
+          curl -fL --retry 3 "$URL" -o /tmp/re15/donor.zip
+          echo "$ZIP_SHA  /tmp/re15/donor.zip" | sha256sum -c -
+          unzip -q /tmp/re15/donor.zip -d /tmp/re15/donor-unzip
+          BIN="$(find /tmp/re15/donor-unzip -type f -name '*.bin' | head -n1)"
+          test -n "$BIN"
+          echo "$BIN_SHA  $BIN" | sha256sum -c -
+          python3 - "$BIN" <<'PY'
+          from pathlib import Path
+          import sys
+          b = Path(sys.argv[1]).read_bytes()
+          i = b.find(b'hsqs')
+          if i < 0:
+              raise SystemExit('donor squashfs missing')
+          Path('/tmp/re15/donor.sqfs').write_bytes(b[i:])
+          PY
+          sudo unsquashfs -no-progress -d /tmp/re15/donor-root /tmp/re15/donor.sqfs >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" /tmp/re15/donor-root
+
+      - name: Acquire exact WIP03 RADIOFIX
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run download 37248840659 \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name F9K1103-CUDY-WIP03-RADIOFIX-FAST-REPACK-V2 \
+            --dir /tmp/re15/wip03-artifact
+          BASE="$(find /tmp/re15/wip03-artifact -type f -name '*sysupgrade.bin' | head -n1)"
+          test -n "$BASE"
+          echo '1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560  '"$BASE" | sha256sum -c -
+          cp "$BASE" /tmp/re15/wip03-sysupgrade.bin
+
+      - name: Source gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          B=firmware/f9k1103-lede-17.01.5/RE-build-cudy-candidate-15-bootfirst.sh
+          M=firmware/f9k1103-lede-17.01.5/cudy-port/mcore.lua
+          A=firmware/f9k1103-lede-17.01.5/cudy-port/sysauth-lede-cudy.js
+          bash -n "$B"
+          grep -Fq '2.4.25-F9K1103-Cudy-C15R5' "$B"
+          grep -Fq 'STATUS=STATIC_CANDIDATE_15R5_BOOTFIRST' "$B"
+          grep -Fq 'DASHBOARD_IFACE_FORMVALUE=LEDE17_COMPAT' "$B"
+          grep -Fq '#luci_password_login, #luci_password2' "$A"
+          grep -Fq 'util.shellsqescape' "$M"
+
+      - name: Build Candidate-15R5
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash firmware/f9k1103-lede-17.01.5/RE-build-cudy-candidate-15-bootfirst.sh \
+            /tmp/re15/donor-root \
+            /tmp/re15/wip03-sysupgrade.bin \
+            RE-CUDY-CANDIDATE-15R5
+
+      - name: Final static gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          O=RE-CUDY-CANDIDATE-15R5
+          IMG="$O/RE-F9K1103-CUDY-WR1200E-CANDIDATE-15R5-BOOTFIRST-sysupgrade.bin"
+          test -s "$IMG"
+          grep -Fxq 'VALIDATION=PASS' "$O/RE-STATIC-VALIDATION.txt"
+          grep -Fxq 'STATUS=STATIC_CANDIDATE_15R5_BOOTFIRST' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -Fxq 'FLASH_AUTHORIZATION=NO' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -Fxq 'TARGET_BIN_SBIN_LIB=BYTE_IDENTICAL_WIP03' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -Fxq 'TARGET_NETWORK_WIRELESS_FIREWALL_DHCP=BYTE_IDENTICAL_WIP03' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -Fxq 'LUCI_LANGUAGE_REGISTRY=WR1200E_R62_2.4.25_UCI_DEFAULTS_EFFECT' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -Fxq 'LUCI_SYSAUTH_JS=LEDE_NATIVE_AUTH_SELECTOR_COMPAT' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -Fxq 'MCORE_SHELL_QUOTING=LEDE17_SHELLSQESCAPE' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -Fxq 'DASHBOARD_IFACE_FORMVALUE=LEDE17_COMPAT' "$O/RE-CANDIDATE-15-STATUS.txt"
+          (cd "$O" && sha256sum -c RE-CANDIDATE-15R5-IMAGE-SHA256.txt)
+          {
+            echo "workflow_run=${GITHUB_RUN_ID}"
+            echo "source_commit=${GITHUB_SHA}"
+            echo "branch=${GITHUB_REF_NAME}"
+            echo "wip03_artifact_id=11320230824"
+            echo "wip03_sysupgrade_sha256=1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560"
+            echo "donor_wr1200e_bin_sha256=086055b0227910f9ddabbb13bfa6b06a3850105bd46a3572b76116bf5a3043fa"
+          } > "$O/RE-BUILD-PROVENANCE.txt"
+          (
+            cd "$O"
+            find . -maxdepth 1 -type f -name 'RE-*' ! -name 'RE-SHA256SUMS.txt' -print0 \
+              | sort -z | xargs -0 sha256sum > RE-SHA256SUMS.txt
+            sha256sum -c RE-SHA256SUMS.txt
+          )
+
+      - name: Show result
+        run: |
+          cat RE-CUDY-CANDIDATE-15R5/RE-STATIC-VALIDATION.txt
+          cat RE-CUDY-CANDIDATE-15R5/RE-CANDIDATE-15-STATUS.txt
+          cat RE-CUDY-CANDIDATE-15R5/RE-CANDIDATE-15R5-IMAGE-SHA256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-CUDY-CANDIDATE-15R5
+          path: RE-CUDY-CANDIDATE-15R5/
+          if-no-files-found: error
+          compression-level: 0
