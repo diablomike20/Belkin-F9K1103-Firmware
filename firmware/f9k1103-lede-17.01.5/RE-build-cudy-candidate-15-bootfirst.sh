@@ -92,6 +92,77 @@ for rel in etc/init.d etc/config; do
     fi
 done
 
+# Candidate-15R2 exposed a Cudy LuCI packaging contract mismatch:
+# the target /etc/config/luci intentionally survived the add-only donor merge,
+# but its "config internal languages" section was empty.  The exact Cudy
+# bootstrap sysauth template assumes conf.languages[current_lang] is a string
+# and calls string.find() on it.  Preserve every target LuCI setting except
+# replace ONLY the languages section with the exact donor section.
+python3 - "$DONOR_ROOT/etc/config/luci" "$WORK/stage/etc/config/luci" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+donor = Path(sys.argv[1])
+target = Path(sys.argv[2])
+
+if not donor.is_file():
+    raise SystemExit("ERROR: donor /etc/config/luci missing")
+if not target.is_file():
+    raise SystemExit("ERROR: target /etc/config/luci missing")
+
+def split_sections(text):
+    lines = text.splitlines(True)
+    sections = []
+    cur = []
+    for line in lines:
+        if re.match(r'^\s*config\s+', line) and cur:
+            sections.append(cur)
+            cur = []
+        cur.append(line)
+    if cur:
+        sections.append(cur)
+    return sections
+
+def is_languages(sec):
+    head = next((ln for ln in sec if ln.strip()), "")
+    return bool(re.match(r"^\s*config\s+internal\s+['\"]?languages['\"]?\s*$", head.strip()))
+
+donor_sections = split_sections(donor.read_text(errors="strict"))
+target_sections = split_sections(target.read_text(errors="strict"))
+
+donor_lang = next((sec for sec in donor_sections if is_languages(sec)), None)
+if donor_lang is None:
+    raise SystemExit("ERROR: donor LuCI languages section missing")
+
+options = [ln for ln in donor_lang if re.match(r'^\s*(option|list)\s+', ln)]
+if not options:
+    raise SystemExit("ERROR: donor LuCI languages section is empty")
+
+out = []
+replaced = False
+for sec in target_sections:
+    if is_languages(sec):
+        if replaced:
+            raise SystemExit("ERROR: duplicate target LuCI languages section")
+        out.append(donor_lang)
+        replaced = True
+    else:
+        out.append(sec)
+
+if not replaced:
+    raise SystemExit("ERROR: target LuCI languages section missing")
+
+target.write_text("".join("".join(sec) for sec in out))
+print(f"RE_LUCI_LANGUAGE_OPTIONS={len(options)}")
+PY
+
+# Hard gate the exact runtime failure we are fixing: the merged Candidate must
+# contain at least one language mapping and the common English mapping must be
+# available for the Cudy auto-language login template.
+grep -A64 -E "^config[[:space:]]+internal[[:space:]]+['\"]?languages['\"]?" \
+    "$WORK/stage/etc/config/luci" | grep -qE "^[[:space:]]+option[[:space:]]+en[[:space:]]+"
+
 # ---------------------------------------------------------------------------
 # 3. Restore the target-proven Cudy/LEDE compatibility seam.
 # ---------------------------------------------------------------------------
@@ -117,7 +188,7 @@ install -m 0755 "$RADIO_ENABLE"     "$WORK/stage/etc/uci-defaults/96zz-f9k1103-e
 
 # Candidate identity. Keep physical board identity in UCI; this is only the
 # visible firmware version string.
-printf '%s\n' '2.4.25-F9K1103-Cudy-C15R2' > "$WORK/stage/etc/rom_version"
+printf '%s\n' '2.4.25-F9K1103-Cudy-C15R3' > "$WORK/stage/etc/rom_version"
 
 # TR-069/CWMP stays permanently excluded from this project.
 rm -f     "$WORK/stage/usr/lib/lua/luci/controller/cwmp.lua"     "$WORK/stage/usr/lib/lua/luci/model/cbi/cwmp.lua"     "$WORK/stage/etc/init.d/cwmp"     "$WORK/stage/usr/bin/cwmp"     "$WORK/stage/usr/sbin/cwmp"
@@ -174,7 +245,7 @@ grep -Raq 'Cudy' "$WORK/stage/usr/lib/lua/luci/view" "$WORK/stage/www" || {
 mksquashfs "$WORK/stage" "$WORK/rootfs-new.squashfs" \
     -comp xz -b 262144 -all-root -noappend -no-progress >/dev/null
 
-IMAGE="$OUT/RE-F9K1103-CUDY-WR1200E-CANDIDATE-15R2-BOOTFIRST-sysupgrade.bin"
+IMAGE="$OUT/RE-F9K1103-CUDY-WR1200E-CANDIDATE-15R3-BOOTFIRST-sysupgrade.bin"
 cat "$WORK/base/kernel.bin" "$WORK/rootfs-new.squashfs" "$WORK/base/fwtool-meta.bin" > "$IMAGE"
 
 python3 "$REPACK" validate "$IMAGE" "$OUT/RE-STATIC-VALIDATION.txt"
@@ -201,7 +272,9 @@ for d in dev proc sys tmp overlay rom; do
 done
 test -x "$WORK/final-root/etc/uci-defaults/96zz-f9k1103-enable-radios"
 grep -q "wireless.\$r.disabled='0'" "$RADIO_ENABLE" 2>/dev/null || true
-grep -q '2.4.25-F9K1103-Cudy-C15R2' "$WORK/final-root/etc/rom_version"
+grep -q '2.4.25-F9K1103-Cudy-C15R3' "$WORK/final-root/etc/rom_version"
+grep -A64 -E "^config[[:space:]]+internal[[:space:]]+['\"]?languages['\"]?" \
+    "$WORK/final-root/etc/config/luci" | grep -qE "^[[:space:]]+option[[:space:]]+en[[:space:]]+"
 
 {
     echo 'STATUS=STATIC_CANDIDATE_15R2_BOOTFIRST'
@@ -227,6 +300,7 @@ grep -q '2.4.25-F9K1103-Cudy-C15R2' "$WORK/final-root/etc/rom_version"
     echo 'LAN_BASELINE=192.168.1.1_WIP03'
     echo 'EARLY_BOOT_MOUNTPOINTS=DEV_PROC_SYS_TMP_OVERLAY_ROM_PRESENT'
     echo 'SQUASHFS_OWNERSHIP=ALL_ROOT'
+    echo 'LUCI_LANGUAGE_REGISTRY=WR1200E_R62_2.4.25_DONOR'
     echo "IMAGE_BYTES=$(stat -c %s "$IMAGE")"
     echo "ROOTFS_SQUASHFS_BYTES=$(stat -c %s "$WORK/rootfs-new.squashfs")"
 } > "$OUT/RE-CANDIDATE-15-STATUS.txt"
@@ -235,10 +309,10 @@ cp "$WORK/base/layout.txt" "$OUT/RE-BASE-LAYOUT.txt"
 
 (
     cd "$OUT"
-    sha256sum "RE-F9K1103-CUDY-WR1200E-CANDIDATE-15R2-BOOTFIRST-sysupgrade.bin"         > RE-CANDIDATE-15R2-IMAGE-SHA256.txt
+    sha256sum "RE-F9K1103-CUDY-WR1200E-CANDIDATE-15R3-BOOTFIRST-sysupgrade.bin"         > RE-CANDIDATE-15R3-IMAGE-SHA256.txt
     find . -maxdepth 1 -type f -name 'RE-*' ! -name 'RE-SHA256SUMS.txt' -print0         | sort -z | xargs -0 sha256sum > RE-SHA256SUMS.txt
     sha256sum -c RE-SHA256SUMS.txt
 )
 
-echo "Candidate-15R2 built: $IMAGE"
+echo "Candidate-15R3 built: $IMAGE"
 echo "Static build only. Physical flash remains a separate explicit gate."
