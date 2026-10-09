@@ -96,7 +96,7 @@ for rel in etc/init.d etc/config; do
     fi
 done
 
-# Candidate-15R2 exposed a Cudy LuCI packaging contract mismatch; Candidate-15R4 fixes it:
+# Candidate-15R2 exposed a Cudy LuCI packaging contract mismatch; Candidate-15R5 fixes it:
 # /etc/config/luci is intentionally empty in both target and donor ROM images.
 # The WR1200E donor populates luci.languages on first boot through its exact
 # luci-i18n-* /etc/uci-defaults scripts.  Importing donor uci-defaults wholesale
@@ -219,13 +219,39 @@ grep -q 'util.shellsqescape' "$WORK/stage/usr/lib/lua/mcore.lua"
 grep -q 'shellquote(ifn)' "$WORK/stage/usr/lib/lua/mcore.lua"
 grep -q 'shellquote(w.ifname)' "$WORK/stage/usr/lib/lua/mcore.lua"
 
+# Candidate-15R4 exact dashboard/XHR testing exposed another donor-vs-target
+# LuCI HTTP ABI mismatch. The Cudy carousel templates use formvaluex("iface"),
+# which returns nil in the LEDE 17 compatibility runtime even though the same
+# query is available through formvalue("iface"). Keep the donor templates
+# otherwise byte-identical and adapt only the iface accessor in the two
+# affected statistic views.
+for rel in \
+    usr/lib/lua/luci/view/carousel/statistic.htm \
+    usr/lib/lua/luci/view/carousel/statistic_multi_ssid.htm
+do
+    test -f "$WORK/stage/$rel"
+    python3 - "$WORK/stage/$rel" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text(errors="strict")
+old = 'luci.http.formvaluex("iface")'
+new = 'luci.http.formvalue("iface")'
+if old not in s:
+    raise SystemExit(f"ERROR: expected Cudy formvaluex iface accessor missing: {p}")
+p.write_text(s.replace(old, new))
+PY
+    grep -Fq 'luci.http.formvalue("iface")' "$WORK/stage/$rel"
+    ! grep -Fq 'luci.http.formvaluex("iface")' "$WORK/stage/$rel"
+done
+
 # Enable both physically verified radios only after the existing WIP03 mapping
 # adapter has run.
 install -m 0755 "$RADIO_ENABLE"     "$WORK/stage/etc/uci-defaults/96zz-f9k1103-enable-radios"
 
 # Candidate identity. Keep physical board identity in UCI; this is only the
 # visible firmware version string.
-printf '%s\n' '2.4.25-F9K1103-Cudy-C15R4' > "$WORK/stage/etc/rom_version"
+printf '%s\n' '2.4.25-F9K1103-Cudy-C15R5' > "$WORK/stage/etc/rom_version"
 
 # TR-069/CWMP stays permanently excluded from this project.
 rm -f     "$WORK/stage/usr/lib/lua/luci/controller/cwmp.lua"     "$WORK/stage/usr/lib/lua/luci/model/cbi/cwmp.lua"     "$WORK/stage/etc/init.d/cwmp"     "$WORK/stage/usr/bin/cwmp"     "$WORK/stage/usr/sbin/cwmp"
@@ -282,7 +308,7 @@ grep -Raq 'Cudy' "$WORK/stage/usr/lib/lua/luci/view" "$WORK/stage/www" || {
 mksquashfs "$WORK/stage" "$WORK/rootfs-new.squashfs" \
     -comp xz -b 262144 -all-root -noappend -no-progress >/dev/null
 
-IMAGE="$OUT/RE-F9K1103-CUDY-WR1200E-CANDIDATE-15R4-BOOTFIRST-sysupgrade.bin"
+IMAGE="$OUT/RE-F9K1103-CUDY-WR1200E-CANDIDATE-15R5-BOOTFIRST-sysupgrade.bin"
 cat "$WORK/base/kernel.bin" "$WORK/rootfs-new.squashfs" "$WORK/base/fwtool-meta.bin" > "$IMAGE"
 
 python3 "$REPACK" validate "$IMAGE" "$OUT/RE-STATIC-VALIDATION.txt"
@@ -309,17 +335,24 @@ for d in dev proc sys tmp overlay rom; do
 done
 test -x "$WORK/final-root/etc/uci-defaults/96zz-f9k1103-enable-radios"
 grep -q "wireless.\$r.disabled='0'" "$RADIO_ENABLE" 2>/dev/null || true
-grep -q '2.4.25-F9K1103-Cudy-C15R4' "$WORK/final-root/etc/rom_version"
+grep -q '2.4.25-F9K1103-Cudy-C15R5' "$WORK/final-root/etc/rom_version"
 grep -q "#luci_password_login, #luci_password2"     "$WORK/final-root/www/luci-static/bootstrap/js/sysauth.js"
 ! grep -q '/admin/get_token'     "$WORK/final-root/www/luci-static/bootstrap/js/sysauth.js"
 grep -q 'util.shellsqescape' "$WORK/final-root/usr/lib/lua/mcore.lua"
 grep -q 'shellquote(ifn)' "$WORK/final-root/usr/lib/lua/mcore.lua"
 grep -q 'shellquote(w.ifname)' "$WORK/final-root/usr/lib/lua/mcore.lua"
+for rel in \
+    usr/lib/lua/luci/view/carousel/statistic.htm \
+    usr/lib/lua/luci/view/carousel/statistic_multi_ssid.htm
+do
+    grep -Fq 'luci.http.formvalue("iface")' "$WORK/final-root/$rel"
+    ! grep -Fq 'luci.http.formvaluex("iface")' "$WORK/final-root/$rel"
+done
 grep -A64 -E "^config[[:space:]]+internal[[:space:]]+['\"]?languages['\"]?" \
     "$WORK/final-root/etc/config/luci" | grep -qE "^[[:space:]]+option[[:space:]]+en[[:space:]]+"
 
 {
-    echo 'STATUS=STATIC_CANDIDATE_15R4_BOOTFIRST'
+    echo 'STATUS=STATIC_CANDIDATE_15R5_BOOTFIRST'
     echo 'FLASH_AUTHORIZATION=NO'
     echo 'BASE=WIP03_RADIOFIX_PHYSICAL_BOOT_PASS'
     echo 'BASE_SHA256=1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560'
@@ -345,6 +378,7 @@ grep -A64 -E "^config[[:space:]]+internal[[:space:]]+['\"]?languages['\"]?" \
     echo 'LUCI_LANGUAGE_REGISTRY=WR1200E_R62_2.4.25_UCI_DEFAULTS_EFFECT'
     echo 'LUCI_SYSAUTH_JS=LEDE_NATIVE_AUTH_SELECTOR_COMPAT'
     echo 'MCORE_SHELL_QUOTING=LEDE17_SHELLSQESCAPE'
+    echo 'DASHBOARD_IFACE_FORMVALUE=LEDE17_COMPAT'
     echo "IMAGE_BYTES=$(stat -c %s "$IMAGE")"
     echo "ROOTFS_SQUASHFS_BYTES=$(stat -c %s "$WORK/rootfs-new.squashfs")"
 } > "$OUT/RE-CANDIDATE-15-STATUS.txt"
@@ -353,10 +387,10 @@ cp "$WORK/base/layout.txt" "$OUT/RE-BASE-LAYOUT.txt"
 
 (
     cd "$OUT"
-    sha256sum "RE-F9K1103-CUDY-WR1200E-CANDIDATE-15R4-BOOTFIRST-sysupgrade.bin"         > RE-CANDIDATE-15R4-IMAGE-SHA256.txt
+    sha256sum "RE-F9K1103-CUDY-WR1200E-CANDIDATE-15R5-BOOTFIRST-sysupgrade.bin"         > RE-CANDIDATE-15R5-IMAGE-SHA256.txt
     find . -maxdepth 1 -type f -name 'RE-*' ! -name 'RE-SHA256SUMS.txt' -print0         | sort -z | xargs -0 sha256sum > RE-SHA256SUMS.txt
     sha256sum -c RE-SHA256SUMS.txt
 )
 
-echo "Candidate-15R4 built: $IMAGE"
+echo "Candidate-15R5 built: $IMAGE"
 echo "Static build only. Physical flash remains a separate explicit gate."
