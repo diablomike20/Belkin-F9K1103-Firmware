@@ -49,7 +49,8 @@ jobs:
               raise SystemExit('rootfs squashfs missing')
           Path('/tmp/re-auth/rootfs.squashfs').write_bytes(b[i:])
           PY
-          unsquashfs -no-progress -d /tmp/re-auth/root /tmp/re-auth/rootfs.squashfs >/dev/null
+          sudo unsquashfs -no-progress -d /tmp/re-auth/root /tmp/re-auth/rootfs.squashfs >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" /tmp/re-auth/root
 
       - name: Classify credential state without exposing secrets
         shell: bash
