@@ -348,7 +348,7 @@ grep -Raq 'Cudy' "$WORK/stage/usr/lib/lua/luci/view" "$WORK/stage/www" || {
 # 5. Pack using the exact WIP03 kernel/uImage and fwtool record.
 # ---------------------------------------------------------------------------
 mksquashfs "$WORK/stage" "$WORK/rootfs-new.squashfs" \
-    -comp xz -b 262144 -all-root -noappend -no-progress >/dev/null
+    -comp xz -b 262144 -all-root -nopad -noappend -no-progress >/dev/null
 
 IMAGE="$OUT/RE-F9K1103-CUDY-WR1200E-CANDIDATE-15R8-BOOTFIRST-sysupgrade.bin"
 
@@ -443,6 +443,7 @@ grep -A64 -E "^config[[:space:]]+internal[[:space:]]+['\"]?languages['\"]?" \
     echo 'RUNTIME_ADAPTER_DEFPASSWD_WRITE=NO'
     echo 'DASHBOARD_IFACE_FORMVALUE=LEDE17_COMPAT'
     echo 'UNIFIED_FROM=C15R6_AUTH_PLUS_C15R5_DASHBOARD'
+    echo 'SQUASHFS_PADDING=NOPAD_LEDE17'
     echo 'PAD_ROOTFS=LEDE17_64K_FF_DEADC0DE'
     echo 'ROOTFS_DATA_PREMARKER=ERASED_FF'
     echo "IMAGE_BYTES=$(stat -c %s "$IMAGE")"
