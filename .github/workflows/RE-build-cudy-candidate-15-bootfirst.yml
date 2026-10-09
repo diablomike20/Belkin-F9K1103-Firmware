@@ -8,6 +8,7 @@ on:
       - '.github/workflows/RE-build-cudy-candidate-15-bootfirst.yml'
       - 'firmware/f9k1103-lede-17.01.5/RE-build-cudy-candidate-15-bootfirst.sh'
       - 'firmware/f9k1103-lede-17.01.5/cudy-port/RE-96zz-f9k1103-enable-radios'
+      - 'firmware/f9k1103-lede-17.01.5/cudy-port/sysauth-lede-cudy.js'
       - 'tools/repack-f9k1103-wip03.py'
   workflow_dispatch:
 
@@ -105,6 +106,7 @@ jobs:
           grep -q '2.4.25-F9K1103-Cudy-C15R4' firmware/f9k1103-lede-17.01.5/RE-build-cudy-candidate-15-bootfirst.sh
           grep -q 'donor LuCI i18n uci-default writers missing' firmware/f9k1103-lede-17.01.5/RE-build-cudy-candidate-15-bootfirst.sh
           grep -q 'STATUS=STATIC_CANDIDATE_15R4_BOOTFIRST' firmware/f9k1103-lede-17.01.5/RE-build-cudy-candidate-15-bootfirst.sh
+          grep -q '#luci_password_login, #luci_password2' firmware/f9k1103-lede-17.01.5/cudy-port/sysauth-lede-cudy.js
 
       - name: Build Candidate-15R4
         shell: bash
@@ -124,7 +126,7 @@ jobs:
 
           test -s "$IMG"
           grep -q '^VALIDATION=PASS$' "$O/RE-STATIC-VALIDATION.txt"
-          grep -q '^STATUS=STATIC_CANDIDATE_15R3_BOOTFIRST$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^STATUS=STATIC_CANDIDATE_15R4_BOOTFIRST$' "$O/RE-CANDIDATE-15-STATUS.txt"
           grep -q '^FLASH_AUTHORIZATION=NO$' "$O/RE-CANDIDATE-15-STATUS.txt"
           grep -q '^BASE=WIP03_RADIOFIX_PHYSICAL_BOOT_PASS$' "$O/RE-CANDIDATE-15-STATUS.txt"
           grep -q '^TARGET_BIN_SBIN_LIB=BYTE_IDENTICAL_WIP03$' "$O/RE-CANDIDATE-15-STATUS.txt"
