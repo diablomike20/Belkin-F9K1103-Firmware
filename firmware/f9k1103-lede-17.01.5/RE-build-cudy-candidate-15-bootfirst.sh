@@ -362,7 +362,11 @@ python3 "$REPACK" assemble-padded \
     "$WORK/base/fwtool-meta.bin" \
     "$IMAGE"
 
-python3 "$REPACK" validate-padded "$IMAGE" "$OUT/RE-STATIC-VALIDATION.txt"
+if ! python3 "$REPACK" validate-padded "$IMAGE" "$OUT/RE-STATIC-VALIDATION.txt"; then
+    echo '--- Candidate-15R8 padded validation report ---' >&2
+    cat "$OUT/RE-STATIC-VALIDATION.txt" >&2 || true
+    exit 1
+fi
 python3 "$REPACK" extract-rootfs "$IMAGE" "$WORK/final-rootfs.squashfs"
 sudo unsquashfs -no-progress -d "$WORK/final-root" "$WORK/final-rootfs.squashfs" >/dev/null
 sudo chown -R "$(id -u):$(id -g)" "$WORK/final-root"
