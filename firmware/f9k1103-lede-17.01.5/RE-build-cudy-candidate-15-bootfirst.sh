@@ -204,7 +204,8 @@ done
 # core remains WIP03 exact.
 install -m 0644 "$MCORE_COMPAT" "$WORK/stage/usr/lib/lua/mcore.lua"
 grep -q 'util.shellsqescape' "$WORK/stage/usr/lib/lua/mcore.lua"
-! grep -q 'util.shellquote' "$WORK/stage/usr/lib/lua/mcore.lua"
+grep -q 'shellquote(ifn)' "$WORK/stage/usr/lib/lua/mcore.lua"
+grep -q 'shellquote(w.ifname)' "$WORK/stage/usr/lib/lua/mcore.lua"
 
 # Enable both physically verified radios only after the existing WIP03 mapping
 # adapter has run.
@@ -298,7 +299,8 @@ test -x "$WORK/final-root/etc/uci-defaults/96zz-f9k1103-enable-radios"
 grep -q "wireless.\$r.disabled='0'" "$RADIO_ENABLE" 2>/dev/null || true
 grep -q '2.4.25-F9K1103-Cudy-C15R4' "$WORK/final-root/etc/rom_version"
 grep -q 'util.shellsqescape' "$WORK/final-root/usr/lib/lua/mcore.lua"
-! grep -q 'util.shellquote' "$WORK/final-root/usr/lib/lua/mcore.lua"
+grep -q 'shellquote(ifn)' "$WORK/final-root/usr/lib/lua/mcore.lua"
+grep -q 'shellquote(w.ifname)' "$WORK/final-root/usr/lib/lua/mcore.lua"
 grep -A64 -E "^config[[:space:]]+internal[[:space:]]+['\"]?languages['\"]?" \
     "$WORK/final-root/etc/config/luci" | grep -qE "^[[:space:]]+option[[:space:]]+en[[:space:]]+"
 
