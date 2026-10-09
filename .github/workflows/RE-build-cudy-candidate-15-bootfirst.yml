@@ -1,13 +1,15 @@
-name: RE Cudy Candidate 15R4 boot-first
+name: RE Cudy Candidate 15R4 unified
 
 on:
   push:
     branches:
-      - re-f9k1103-cudy-candidate-15r4-auth
+      - re-f9k1103-cudy-candidate-15r4-unified
     paths:
       - '.github/workflows/RE-build-cudy-candidate-15-bootfirst.yml'
       - 'firmware/f9k1103-lede-17.01.5/RE-build-cudy-candidate-15-bootfirst.sh'
       - 'firmware/f9k1103-lede-17.01.5/cudy-port/RE-96zz-f9k1103-enable-radios'
+      - 'firmware/f9k1103-lede-17.01.5/cudy-port/sysauth-lede-cudy.js'
+      - 'firmware/f9k1103-lede-17.01.5/cudy-port/mcore.lua'
       - 'tools/repack-f9k1103-wip03.py'
   workflow_dispatch:
 
@@ -16,7 +18,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: re-cudy-candidate15r4-bootfirst-${{ github.ref }}
+  group: re-cudy-candidate15r4-unified-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -27,7 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: re-f9k1103-cudy-candidate-15r4-auth
+          ref: re-f9k1103-cudy-candidate-15r4-unified
 
       - name: Install image tools
         run: |
@@ -105,6 +107,10 @@ jobs:
           grep -q '2.4.25-F9K1103-Cudy-C15R4' firmware/f9k1103-lede-17.01.5/RE-build-cudy-candidate-15-bootfirst.sh
           grep -q 'donor LuCI i18n uci-default writers missing' firmware/f9k1103-lede-17.01.5/RE-build-cudy-candidate-15-bootfirst.sh
           grep -q 'STATUS=STATIC_CANDIDATE_15R4_BOOTFIRST' firmware/f9k1103-lede-17.01.5/RE-build-cudy-candidate-15-bootfirst.sh
+          grep -q '#luci_password_login, #luci_password2' firmware/f9k1103-lede-17.01.5/cudy-port/sysauth-lede-cudy.js
+          grep -q 'util.shellsqescape' firmware/f9k1103-lede-17.01.5/cudy-port/mcore.lua
+          grep -q 'shellquote(ifn)' firmware/f9k1103-lede-17.01.5/cudy-port/mcore.lua
+          grep -q 'shellquote(w.ifname)' firmware/f9k1103-lede-17.01.5/cudy-port/mcore.lua
 
       - name: Build Candidate-15R4
         shell: bash
@@ -124,7 +130,210 @@ jobs:
 
           test -s "$IMG"
           grep -q '^VALIDATION=PASS$' "$O/RE-STATIC-VALIDATION.txt"
-          grep -q '^STATUS=STATIC_CANDIDATE_15R3_BOOTFIRST$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^STATUS=STATIC_CANDIDATE_15R4_BOOTFIRST
+          grep -q '^FLASH_AUTHORIZATION=NO$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^BASE=WIP03_RADIOFIX_PHYSICAL_BOOT_PASS$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^TARGET_BIN_SBIN_LIB=BYTE_IDENTICAL_WIP03$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^TARGET_RC_D=BYTE_IDENTICAL_WIP03$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^TARGET_HOTPLUG=BYTE_IDENTICAL_WIP03$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^TARGET_NETWORK_WIRELESS_FIREWALL_DHCP=BYTE_IDENTICAL_WIP03$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^CUDY_LUCI_WWW=WR1200E_R62_2.4.25$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^TR069_CWMP=EXCLUDED$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^RADIO0=2.4G_ENABLED$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^RADIO1=5G_ENABLED$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^EARLY_BOOT_MOUNTPOINTS=DEV_PROC_SYS_TMP_OVERLAY_ROM_PRESENT$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^SQUASHFS_OWNERSHIP=ALL_ROOT$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^LUCI_LANGUAGE_REGISTRY=WR1200E_R62_2.4.25_UCI_DEFAULTS_EFFECT$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^LUCI_SYSAUTH_JS=LEDE_NATIVE_AUTH_SELECTOR_COMPAT
+
+          (cd "$O" && sha256sum -c RE-CANDIDATE-15R4-IMAGE-SHA256.txt)
+
+          {
+            echo "workflow_run=${GITHUB_RUN_ID}"
+            echo "source_commit=${GITHUB_SHA}"
+            echo "branch=${GITHUB_REF_NAME}"
+            echo "wip03_artifact_id=11320230824"
+            echo "wip03_sysupgrade_sha256=1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560"
+            echo "donor_wr1200e_bin_sha256=086055b0227910f9ddabbb13bfa6b06a3850105bd46a3572b76116bf5a3043fa"
+          } > "$O/RE-BUILD-PROVENANCE.txt"
+
+          (
+            cd "$O"
+            find . -maxdepth 1 -type f -name 'RE-*' ! -name 'RE-SHA256SUMS.txt' -print0 \
+              | sort -z | xargs -0 sha256sum > RE-SHA256SUMS.txt
+            sha256sum -c RE-SHA256SUMS.txt
+          )
+
+      - name: Show result
+        run: |
+          cat RE-CUDY-CANDIDATE-15R4-BOOTFIRST/RE-STATIC-VALIDATION.txt
+          cat RE-CUDY-CANDIDATE-15R4-BOOTFIRST/RE-CANDIDATE-15-STATUS.txt
+          cat RE-CUDY-CANDIDATE-15R4-BOOTFIRST/RE-CANDIDATE-15R4-IMAGE-SHA256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-CUDY-CANDIDATE-15R4-BOOTFIRST
+          path: RE-CUDY-CANDIDATE-15R4-BOOTFIRST/
+          if-no-files-found: error
+          compression-level: 0
+ "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^FLASH_AUTHORIZATION=NO$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^BASE=WIP03_RADIOFIX_PHYSICAL_BOOT_PASS$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^TARGET_BIN_SBIN_LIB=BYTE_IDENTICAL_WIP03$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^TARGET_RC_D=BYTE_IDENTICAL_WIP03$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^TARGET_HOTPLUG=BYTE_IDENTICAL_WIP03$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^TARGET_NETWORK_WIRELESS_FIREWALL_DHCP=BYTE_IDENTICAL_WIP03$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^CUDY_LUCI_WWW=WR1200E_R62_2.4.25$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^TR069_CWMP=EXCLUDED$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^RADIO0=2.4G_ENABLED$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^RADIO1=5G_ENABLED$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^EARLY_BOOT_MOUNTPOINTS=DEV_PROC_SYS_TMP_OVERLAY_ROM_PRESENT$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^SQUASHFS_OWNERSHIP=ALL_ROOT$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^LUCI_LANGUAGE_REGISTRY=WR1200E_R62_2.4.25_UCI_DEFAULTS_EFFECT$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^LUCI_SYSAUTH_JS=LEDE_NATIVE_AUTH_SELECTOR_COMPAT$' "$O/RE-CANDIDATE-15-STATUS.txt"
+
+          (cd "$O" && sha256sum -c RE-CANDIDATE-15R4-IMAGE-SHA256.txt)
+
+          {
+            echo "workflow_run=${GITHUB_RUN_ID}"
+            echo "source_commit=${GITHUB_SHA}"
+            echo "branch=${GITHUB_REF_NAME}"
+            echo "wip03_artifact_id=11320230824"
+            echo "wip03_sysupgrade_sha256=1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560"
+            echo "donor_wr1200e_bin_sha256=086055b0227910f9ddabbb13bfa6b06a3850105bd46a3572b76116bf5a3043fa"
+          } > "$O/RE-BUILD-PROVENANCE.txt"
+
+          (
+            cd "$O"
+            find . -maxdepth 1 -type f -name 'RE-*' ! -name 'RE-SHA256SUMS.txt' -print0 \
+              | sort -z | xargs -0 sha256sum > RE-SHA256SUMS.txt
+            sha256sum -c RE-SHA256SUMS.txt
+          )
+
+      - name: Show result
+        run: |
+          cat RE-CUDY-CANDIDATE-15R4-BOOTFIRST/RE-STATIC-VALIDATION.txt
+          cat RE-CUDY-CANDIDATE-15R4-BOOTFIRST/RE-CANDIDATE-15-STATUS.txt
+          cat RE-CUDY-CANDIDATE-15R4-BOOTFIRST/RE-CANDIDATE-15R4-IMAGE-SHA256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-CUDY-CANDIDATE-15R4-BOOTFIRST
+          path: RE-CUDY-CANDIDATE-15R4-BOOTFIRST/
+          if-no-files-found: error
+          compression-level: 0
+ "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^MCORE_SHELL_QUOTING=LEDE17_SHELLSQESCAPE
+
+          (cd "$O" && sha256sum -c RE-CANDIDATE-15R4-IMAGE-SHA256.txt)
+
+          {
+            echo "workflow_run=${GITHUB_RUN_ID}"
+            echo "source_commit=${GITHUB_SHA}"
+            echo "branch=${GITHUB_REF_NAME}"
+            echo "wip03_artifact_id=11320230824"
+            echo "wip03_sysupgrade_sha256=1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560"
+            echo "donor_wr1200e_bin_sha256=086055b0227910f9ddabbb13bfa6b06a3850105bd46a3572b76116bf5a3043fa"
+          } > "$O/RE-BUILD-PROVENANCE.txt"
+
+          (
+            cd "$O"
+            find . -maxdepth 1 -type f -name 'RE-*' ! -name 'RE-SHA256SUMS.txt' -print0 \
+              | sort -z | xargs -0 sha256sum > RE-SHA256SUMS.txt
+            sha256sum -c RE-SHA256SUMS.txt
+          )
+
+      - name: Show result
+        run: |
+          cat RE-CUDY-CANDIDATE-15R4-BOOTFIRST/RE-STATIC-VALIDATION.txt
+          cat RE-CUDY-CANDIDATE-15R4-BOOTFIRST/RE-CANDIDATE-15-STATUS.txt
+          cat RE-CUDY-CANDIDATE-15R4-BOOTFIRST/RE-CANDIDATE-15R4-IMAGE-SHA256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-CUDY-CANDIDATE-15R4-BOOTFIRST
+          path: RE-CUDY-CANDIDATE-15R4-BOOTFIRST/
+          if-no-files-found: error
+          compression-level: 0
+ "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^FLASH_AUTHORIZATION=NO$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^BASE=WIP03_RADIOFIX_PHYSICAL_BOOT_PASS$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^TARGET_BIN_SBIN_LIB=BYTE_IDENTICAL_WIP03$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^TARGET_RC_D=BYTE_IDENTICAL_WIP03$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^TARGET_HOTPLUG=BYTE_IDENTICAL_WIP03$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^TARGET_NETWORK_WIRELESS_FIREWALL_DHCP=BYTE_IDENTICAL_WIP03$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^CUDY_LUCI_WWW=WR1200E_R62_2.4.25$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^TR069_CWMP=EXCLUDED$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^RADIO0=2.4G_ENABLED$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^RADIO1=5G_ENABLED$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^EARLY_BOOT_MOUNTPOINTS=DEV_PROC_SYS_TMP_OVERLAY_ROM_PRESENT$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^SQUASHFS_OWNERSHIP=ALL_ROOT$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^LUCI_LANGUAGE_REGISTRY=WR1200E_R62_2.4.25_UCI_DEFAULTS_EFFECT$' "$O/RE-CANDIDATE-15-STATUS.txt"
+          grep -q '^LUCI_SYSAUTH_JS=LEDE_NATIVE_AUTH_SELECTOR_COMPAT$' "$O/RE-CANDIDATE-15-STATUS.txt"
+
+          (cd "$O" && sha256sum -c RE-CANDIDATE-15R4-IMAGE-SHA256.txt)
+
+          {
+            echo "workflow_run=${GITHUB_RUN_ID}"
+            echo "source_commit=${GITHUB_SHA}"
+            echo "branch=${GITHUB_REF_NAME}"
+            echo "wip03_artifact_id=11320230824"
+            echo "wip03_sysupgrade_sha256=1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560"
+            echo "donor_wr1200e_bin_sha256=086055b0227910f9ddabbb13bfa6b06a3850105bd46a3572b76116bf5a3043fa"
+          } > "$O/RE-BUILD-PROVENANCE.txt"
+
+          (
+            cd "$O"
+            find . -maxdepth 1 -type f -name 'RE-*' ! -name 'RE-SHA256SUMS.txt' -print0 \
+              | sort -z | xargs -0 sha256sum > RE-SHA256SUMS.txt
+            sha256sum -c RE-SHA256SUMS.txt
+          )
+
+      - name: Show result
+        run: |
+          cat RE-CUDY-CANDIDATE-15R4-BOOTFIRST/RE-STATIC-VALIDATION.txt
+          cat RE-CUDY-CANDIDATE-15R4-BOOTFIRST/RE-CANDIDATE-15-STATUS.txt
+          cat RE-CUDY-CANDIDATE-15R4-BOOTFIRST/RE-CANDIDATE-15R4-IMAGE-SHA256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-CUDY-CANDIDATE-15R4-BOOTFIRST
+          path: RE-CUDY-CANDIDATE-15R4-BOOTFIRST/
+          if-no-files-found: error
+          compression-level: 0
+ "$O/RE-CANDIDATE-15-STATUS.txt"
+
+          (cd "$O" && sha256sum -c RE-CANDIDATE-15R4-IMAGE-SHA256.txt)
+
+          {
+            echo "workflow_run=${GITHUB_RUN_ID}"
+            echo "source_commit=${GITHUB_SHA}"
+            echo "branch=${GITHUB_REF_NAME}"
+            echo "wip03_artifact_id=11320230824"
+            echo "wip03_sysupgrade_sha256=1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560"
+            echo "donor_wr1200e_bin_sha256=086055b0227910f9ddabbb13bfa6b06a3850105bd46a3572b76116bf5a3043fa"
+          } > "$O/RE-BUILD-PROVENANCE.txt"
+
+          (
+            cd "$O"
+            find . -maxdepth 1 -type f -name 'RE-*' ! -name 'RE-SHA256SUMS.txt' -print0 \
+              | sort -z | xargs -0 sha256sum > RE-SHA256SUMS.txt
+            sha256sum -c RE-SHA256SUMS.txt
+          )
+
+      - name: Show result
+        run: |
+          cat RE-CUDY-CANDIDATE-15R4-BOOTFIRST/RE-STATIC-VALIDATION.txt
+          cat RE-CUDY-CANDIDATE-15R4-BOOTFIRST/RE-CANDIDATE-15-STATUS.txt
+          cat RE-CUDY-CANDIDATE-15R4-BOOTFIRST/RE-CANDIDATE-15R4-IMAGE-SHA256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-CUDY-CANDIDATE-15R4-BOOTFIRST
+          path: RE-CUDY-CANDIDATE-15R4-BOOTFIRST/
+          if-no-files-found: error
+          compression-level: 0
+ "$O/RE-CANDIDATE-15-STATUS.txt"
           grep -q '^FLASH_AUTHORIZATION=NO$' "$O/RE-CANDIDATE-15-STATUS.txt"
           grep -q '^BASE=WIP03_RADIOFIX_PHYSICAL_BOOT_PASS$' "$O/RE-CANDIDATE-15-STATUS.txt"
           grep -q '^TARGET_BIN_SBIN_LIB=BYTE_IDENTICAL_WIP03$' "$O/RE-CANDIDATE-15-STATUS.txt"
