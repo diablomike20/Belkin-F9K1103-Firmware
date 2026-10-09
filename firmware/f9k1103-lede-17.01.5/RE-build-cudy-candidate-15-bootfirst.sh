@@ -92,7 +92,7 @@ for rel in etc/init.d etc/config; do
     fi
 done
 
-# Candidate-15R2 exposed a Cudy LuCI packaging contract mismatch:
+# Candidate-15R2 exposed a Cudy LuCI packaging contract mismatch; Candidate-15R3 fixes it:
 # the target /etc/config/luci intentionally survived the add-only donor merge,
 # but its "config internal languages" section was empty.  The exact Cudy
 # bootstrap sysauth template assumes conf.languages[current_lang] is a string
@@ -277,7 +277,7 @@ grep -A64 -E "^config[[:space:]]+internal[[:space:]]+['\"]?languages['\"]?" \
     "$WORK/final-root/etc/config/luci" | grep -qE "^[[:space:]]+option[[:space:]]+en[[:space:]]+"
 
 {
-    echo 'STATUS=STATIC_CANDIDATE_15R2_BOOTFIRST'
+    echo 'STATUS=STATIC_CANDIDATE_15R3_BOOTFIRST'
     echo 'FLASH_AUTHORIZATION=NO'
     echo 'BASE=WIP03_RADIOFIX_PHYSICAL_BOOT_PASS'
     echo 'BASE_SHA256=1c5418cb11093c368e7b519f375533277803c1d0225e4ad680626aef57a27560'
