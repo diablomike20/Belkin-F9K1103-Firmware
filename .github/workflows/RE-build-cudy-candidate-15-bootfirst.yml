@@ -282,6 +282,30 @@ jobs:
           } > "$OUT/RE-LNUM32-FIND-CONTEXT.txt"
           find "$OUT" -type f -print0 | sort -z | xargs -0 sha256sum > "$OUT/RE-SHA256SUMS.txt"
 
+      - name: Capture donor and target wireless UCI contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT=RE-R9-LIVE-ROUTE-DEBUG
+          {
+            echo '=== EXACT WR1200E DONOR /etc/config/wireless ==='
+            cat /tmp/re15/donor-root/etc/config/wireless 2>/dev/null || true
+            echo
+            echo '=== EXACT WIP03 TARGET /etc/config/wireless ==='
+            cat /tmp/re-cudy-candidate-15/target-root/etc/config/wireless 2>/dev/null || true
+            echo
+            echo '=== R8 FINAL /etc/config/wireless ==='
+            cat /tmp/re-cudy-candidate-15/final-root/etc/config/wireless 2>/dev/null || true
+          } > "$OUT/RE-WIRELESS-UCI-CONTRACTS.txt"
+          {
+            echo '=== DONOR system config ==='
+            cat /tmp/re15/donor-root/etc/config/system 2>/dev/null || true
+            echo
+            echo '=== TARGET system config ==='
+            cat /tmp/re-cudy-candidate-15/target-root/etc/config/system 2>/dev/null || true
+          } > "$OUT/RE-SYSTEM-UCI-CONTRACTS.txt"
+          find "$OUT" -type f -print0 | sort -z | xargs -0 sha256sum > "$OUT/RE-SHA256SUMS.txt"
+
       - uses: actions/upload-artifact@v4
         with:
           name: RE-R9-LIVE-ROUTE-DEBUG
