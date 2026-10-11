@@ -1,0 +1,53 @@
+name: RE Cudy donor CBI symbol audit
+
+on:
+  push:
+    branches: [re-f9k1103-cudy-livefix-r9]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools unzip binutils
+          URL='https://www.cudy.com/cdn/shop/files/WR1200E-R62-2.4.25-20260114-184136-flash.zip?v=12982462962593522136'
+          curl -fL --retry 3 "$URL" -o /tmp/donor.zip
+          unzip -q /tmp/donor.zip -d /tmp/donor-unzip
+          BIN="$(find /tmp/donor-unzip -type f -name '*.bin' | head -n1)"
+          python3 - "$BIN" <<'PY'
+          from pathlib import Path
+          import sys
+          b=Path(sys.argv[1]).read_bytes()
+          i=b.find(b'hsqs')
+          assert i>=0
+          Path('/tmp/donor.sqfs').write_bytes(b[i:])
+          PY
+          sudo unsquashfs -no-progress -d /tmp/donor-root /tmp/donor.sqfs >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" /tmp/donor-root
+          mkdir -p RE-CBI-AUDIT
+          {
+            echo '=== MATCHING FILES ==='
+            find /tmp/donor-root/usr/lib/lua/luci/model/cbi -type f \( -name 'wds_scan.lua' -o -name 'devlist.lua' -o -name 'wds.lua' -o -name 'wireless_utils.lua' \) -print
+            echo
+            for f in $(find /tmp/donor-root/usr/lib/lua/luci/model/cbi -type f \( -name 'wds_scan.lua' -o -name 'devlist.lua' -o -name 'wds.lua' -o -name 'wireless_utils.lua' \)); do
+              echo "===== $f ====="
+              file "$f"
+              strings -a -n 2 "$f"
+              echo
+            done
+          } > RE-CBI-AUDIT/RE-CBI-SYMBOLS.txt
+          {
+            echo '=== MCORE REFERENCES ==='
+            grep -aRIn -E 'mcore|devlist|scan|iwinfo|wireless|apcli|wisp|wds|ubus|network' /tmp/donor-root/usr/lib/lua/luci/model/cbi 2>/dev/null | head -2000 || true
+          } > RE-CBI-AUDIT/RE-CBI-GREP.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-CBI-AUDIT
+          path: RE-CBI-AUDIT/
