@@ -252,6 +252,36 @@ jobs:
           } > "$OUT/RE-DECOMPILED-WIRELESS-FIND-CONTEXT.txt"
           find "$OUT" -type f -print0 | sort -z | xargs -0 sha256sum > "$OUT/RE-SHA256SUMS.txt"
 
+      - name: Disassemble OpenWrt LNUM32 wireless bytecode
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/luad-release
+          mkdir -p /tmp/luad-release
+          gh release download v0.3.1 --repo dweekly/luad \
+            --pattern 'luad-0.3.1-linux-x86_64.tar.gz' \
+            --dir /tmp/luad-release
+          tar -xzf /tmp/luad-release/luad-0.3.1-linux-x86_64.tar.gz -C /tmp/luad-release
+          LUAD="$(find /tmp/luad-release -type f -name luad | head -n1)"
+          test -x "$LUAD"
+          OUT=RE-R9-LIVE-ROUTE-DEBUG
+          mkdir -p "$OUT/lnum32"
+          for name in config_general config_combine config_uncombine wireless_utils config status multi_ssid_config; do
+            F="$OUT/r8/usr/lib/lua/luci/model/cbi/wireless/$name.lua"
+            [ -f "$F" ] || continue
+            "$LUAD" inspect "$F" > "$OUT/lnum32/$name.inspect.txt"
+            "$LUAD" disasm "$F" --raw --effects > "$OUT/lnum32/$name.disasm.txt"
+          done
+          {
+            for F in "$OUT"/lnum32/*.disasm.txt; do
+              echo "===== $F ====="
+              grep -n -B18 -A30 -E '"find"|GETTABLE.*find|SELF.*find|CALL.*find' "$F" || true
+            done
+          } > "$OUT/RE-LNUM32-FIND-CONTEXT.txt"
+          find "$OUT" -type f -print0 | sort -z | xargs -0 sha256sum > "$OUT/RE-SHA256SUMS.txt"
+
       - uses: actions/upload-artifact@v4
         with:
           name: RE-R9-LIVE-ROUTE-DEBUG
