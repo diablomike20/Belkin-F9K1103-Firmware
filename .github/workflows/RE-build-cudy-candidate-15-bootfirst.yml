@@ -224,6 +224,34 @@ jobs:
 
           find "$OUT" -type f -print0 | sort -z | xargs -0 sha256sum             > "$OUT/RE-SHA256SUMS.txt"
 
+      - name: Decompile exact wireless Lua 5.1 bytecode
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y build-essential git
+          rm -rf /tmp/luadec
+          git clone --depth 1 https://github.com/viruscamp/luadec /tmp/luadec
+          git -C /tmp/luadec submodule update --init --depth 1 lua-5.1
+          make -C /tmp/luadec/lua-5.1 linux >/dev/null
+          make -C /tmp/luadec/luadec LUAVER=5.1 >/dev/null
+          LUADEC=/tmp/luadec/luadec/luadec
+          test -x "$LUADEC"
+          OUT=RE-R9-LIVE-ROUTE-DEBUG
+          mkdir -p "$OUT/decompiled"
+          for name in config_general config_combine config_uncombine wireless_utils config status multi_ssid_config; do
+            F="$OUT/r8/usr/lib/lua/luci/model/cbi/wireless/$name.lua"
+            [ -f "$F" ] || continue
+            "$LUADEC" "$F" > "$OUT/decompiled/$name.lua" 2> "$OUT/decompiled/$name.stderr" || true
+            "$LUADEC" -dis "$F" > "$OUT/decompiled/$name.dis.txt" 2>> "$OUT/decompiled/$name.stderr" || true
+          done
+          {
+            for F in "$OUT"/decompiled/*.lua; do
+              echo "===== $F ====="
+              grep -nE 'string[.]find|[.]find[(]|hwmode|hwmodes|board|workmode|device|iface|wlan1|smart_connect' "$F" || true
+            done
+          } > "$OUT/RE-DECOMPILED-WIRELESS-FIND-CONTEXT.txt"
+          find "$OUT" -type f -print0 | sort -z | xargs -0 sha256sum > "$OUT/RE-SHA256SUMS.txt"
+
       - uses: actions/upload-artifact@v4
         with:
           name: RE-R9-LIVE-ROUTE-DEBUG
