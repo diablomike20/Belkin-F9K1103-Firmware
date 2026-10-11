@@ -198,7 +198,7 @@ jobs:
           mkdir -p "$OUT/r8" "$OUT/donor"
           for BASE in "$ROOT" "$DONOR"; do
             if [ "$BASE" = "$ROOT" ]; then DEST="$OUT/r8"; else DEST="$OUT/donor"; fi
-            for rel in               usr/lib/lua/luci/controller               usr/lib/lua/luci/model/cbi/network               usr/lib/lua/luci/model/network.lua               usr/lib/lua/luci/sys.lua               usr/lib/lua/mcore.lua
+            for rel in               usr/lib/lua/luci/controller               usr/lib/lua/luci/model/cbi/network               usr/lib/lua/luci/model/cbi/wireless               usr/lib/lua/luci/model/network.lua               usr/lib/lua/luci/sys.lua               usr/lib/lua/mcore.lua
             do
               if [ -e "$BASE/$rel" ]; then
                 mkdir -p "$DEST/$(dirname "$rel")"
@@ -208,6 +208,15 @@ jobs:
           done
 
           diff -ruN "$OUT/donor/usr/lib/lua/luci/model/cbi/network"                      "$OUT/r8/usr/lib/lua/luci/model/cbi/network"                      > "$OUT/RE-DONOR-VS-R8-NETWORK-CBI.diff" || true
+          diff -ruN "$OUT/donor/usr/lib/lua/luci/model/cbi/wireless"                      "$OUT/r8/usr/lib/lua/luci/model/cbi/wireless"                      > "$OUT/RE-DONOR-VS-R8-WIRELESS-CBI.diff" || true
+
+          for BASE in "$OUT/r8/usr/lib/lua/luci/model/cbi/wireless" "$OUT/donor/usr/lib/lua/luci/model/cbi/wireless"; do
+            [ -d "$BASE" ] || continue
+            find "$BASE" -type f -name '*.lua' -print0 | while IFS= read -r -d '' F; do
+              echo "===== $F ====="
+              strings -a "$F" | grep -Ei 'find|string|mode|hwmode|hwmodes|channel|band|freq|iface|device|smart_connect|board|wlan' || true
+            done
+          done > "$OUT/RE-WIRELESS-CBI-STRING-CONSTANTS.txt"
 
           grep -RniE 'string[.]find|:find[(]' "$OUT/r8"             > "$OUT/RE-R8-ALL-FIND-CALLS.txt" || true
 
