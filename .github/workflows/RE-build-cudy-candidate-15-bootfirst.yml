@@ -1,9 +1,9 @@
-name: RE Cudy Candidate 15R8 persistent overlay
+name: RE Cudy R9 live route debug
 
 on:
   push:
     branches:
-      - re-f9k1103-cudy-candidate-15r8-persistent-overlay
+      - re-f9k1103-cudy-r9-live-route-debug
     paths:
       - '.github/workflows/RE-build-cudy-candidate-15-bootfirst.yml'
       - 'firmware/f9k1103-lede-17.01.5/RE-build-cudy-candidate-15-bootfirst.sh'
@@ -31,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: re-f9k1103-cudy-candidate-15r8-persistent-overlay
+          ref: re-f9k1103-cudy-r9-live-route-debug
 
       - name: Install image tools
         run: |
@@ -168,6 +168,59 @@ jobs:
               | sort -z | xargs -0 sha256sum > RE-SHA256SUMS.txt
             sha256sum -c RE-SHA256SUMS.txt
           )
+
+      - name: Collect exact donor and R8 CBI route evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=/tmp/re-cudy-candidate-15/final-root
+          DONOR=/tmp/re15/donor-root
+          OUT=RE-R9-LIVE-ROUTE-DEBUG
+          rm -rf "$OUT"
+          mkdir -p "$OUT"
+
+          {
+            echo '=== R8 route references ==='
+            grep -RniE 'wireless/config|config/(general|combine|uncombine)|wireless/wds|network/devices|systemstatus'               "$ROOT/usr/lib/lua/luci" 2>/dev/null || true
+            echo
+            echo '=== R8 string.find calls in LuCI models ==='
+            grep -RniE 'string[.]find|:find[(]'               "$ROOT/usr/lib/lua/luci/model" 2>/dev/null || true
+          } > "$OUT/RE-R8-ROUTES-AND-FIND.txt"
+
+          {
+            echo '=== donor route references ==='
+            grep -RniE 'wireless/config|config/(general|combine|uncombine)|wireless/wds|network/devices|systemstatus'               "$DONOR/usr/lib/lua/luci" 2>/dev/null || true
+            echo
+            echo '=== donor string.find calls in LuCI models ==='
+            grep -RniE 'string[.]find|:find[(]'               "$DONOR/usr/lib/lua/luci/model" 2>/dev/null || true
+          } > "$OUT/RE-DONOR-ROUTES-AND-FIND.txt"
+
+          mkdir -p "$OUT/r8" "$OUT/donor"
+          for BASE in "$ROOT" "$DONOR"; do
+            if [ "$BASE" = "$ROOT" ]; then DEST="$OUT/r8"; else DEST="$OUT/donor"; fi
+            for rel in               usr/lib/lua/luci/controller               usr/lib/lua/luci/model/cbi/network               usr/lib/lua/luci/model/network.lua               usr/lib/lua/luci/sys.lua               usr/lib/lua/mcore.lua
+            do
+              if [ -e "$BASE/$rel" ]; then
+                mkdir -p "$DEST/$(dirname "$rel")"
+                cp -a "$BASE/$rel" "$DEST/$rel"
+              fi
+            done
+          done
+
+          diff -ruN "$OUT/donor/usr/lib/lua/luci/model/cbi/network"                      "$OUT/r8/usr/lib/lua/luci/model/cbi/network"                      > "$OUT/RE-DONOR-VS-R8-NETWORK-CBI.diff" || true
+
+          grep -RniE 'string[.]find|:find[(]' "$OUT/r8"             > "$OUT/RE-R8-ALL-FIND-CALLS.txt" || true
+
+          grep -RniE 'string[.]find|:find[(]' "$OUT/donor"             > "$OUT/RE-DONOR-ALL-FIND-CALLS.txt" || true
+
+          find "$OUT" -type f -print0 | sort -z | xargs -0 sha256sum             > "$OUT/RE-SHA256SUMS.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RE-R9-LIVE-ROUTE-DEBUG
+          path: RE-R9-LIVE-ROUTE-DEBUG/
+          if-no-files-found: error
+          compression-level: 0
 
       - name: Show result
         run: |
